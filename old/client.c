@@ -8,9 +8,12 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h> // read(), write(), close()
+// #include "stb_ds.h"
 
-#define MAX 1000
-#define PORT 8080
+#define STB_DS
+
+#define MAX 4096
+#define PORT 8000
 
 int main() {
 
@@ -29,7 +32,7 @@ int main() {
   int result =
       connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
   if (result) {
-    printf("failed to connect!");
+    printf("Failed to connect!\n");
     exit(1);
   }
   printf("Connected!\n");
