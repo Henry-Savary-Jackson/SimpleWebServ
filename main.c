@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <asm-generic/errno.h>
+#include <asm-generic/socket.h>
 #include <errno.h>
 #include <linux/limits.h>
 #include <netdb.h>
@@ -15,7 +16,7 @@
 #include <unistd.h> // read(), write(), close()
 
 #define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
+#include <stb_ds.h>
 
 #define MAX 4096
 #define MAX_WORKERS 10
@@ -29,15 +30,19 @@ int *childrenArr = NULL;
 
 void sighandler_parent(int signal) {
   close(sockfd);
+  // printf("sockfd:%d\n", sockfd);
   int len = arrlen(childrenArr);
   int s;
   for (int i = 0; i < len; i++) {
     int pid_child = childrenArr[i];
-    printf("killing child %d", pid_child );
+    printf("killing child %d %d\n", pid_child, getpid());
     kill(pid_child, SIGTERM);
     waitpid(pid_child, &s, 0);
   }
+  arrfree(childrenArr);
 }
+
+void chlddeth(int signal) { printf("Death of child!\n"); }
 
 void handleConn(int connfd) {
   char buf[MAX];
@@ -57,7 +62,11 @@ void handleConn(int connfd) {
   char lineDone = 0;
 
   int n_left = MAX;
-  const char *resp = "HTTP/1.1 200 OK\r\n\r\nHello there!";
+  const char *body = "Hello there!";
+  char data[MAX];
+  int content_length = strlen(body);
+  sprintf(data, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s", content_length,
+          body);
   while (1) {
     // if the buffer is full make space
     if (writeoffset >= MAX) {
@@ -93,10 +102,9 @@ void handleConn(int connfd) {
       }
       printf("version %d.%d\n", verMajor, verMinor);
       printf("%s %s\n", uri, method);
-      send(connfd, resp, strlen(resp), MSG_NOSIGNAL);
+      send(connfd, data, strlen(data), MSG_NOSIGNAL);
       goto end;
     }
-
   }
   goto end;
 end:
@@ -137,12 +145,18 @@ int main(int argc, char *argv[]) {
   sigaction(SIGTERM, &sa, NULL);
   sigaction(SIGINT, &sa, NULL);
 
+  struct sigaction sa2;
+  sa2.sa_handler = chlddeth;
+  sa2.sa_flags = 0;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGCHLD, &sa2, NULL);
+
   uint pid = getpid();
 
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (!sockfd) {
     printf("Failed to create socket.\n");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
   printf("Socket created!\n");
 
@@ -150,6 +164,13 @@ int main(int argc, char *argv[]) {
   server_add.sin_addr.s_addr = inet_addr(addr);
   server_add.sin_port = htons(port);
   server_add.sin_family = AF_INET;
+
+  int reuseaddr = 1;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr,
+                 sizeof(reuseaddr))) {
+    perror("setsockopt failed");
+    exit(EXIT_FAILURE);
+  }
 
   int result = bind(sockfd, (struct sockaddr *)&server_add, sizeof(server_add));
   if (result != 0) {
@@ -162,20 +183,24 @@ int main(int argc, char *argv[]) {
   printf("PID: %d \nPort %d bound on address %s !\n", pid, port, addr);
 
   printf("Listening...\n");
-  while (1) {
-    int result = listen(sockfd, MAX_CONN);
-    if (result) {
-      printf("Error listening!\n");
-      goto end;
-    }
+  int listen_result = listen(sockfd, MAX_CONN);
+  if (listen_result) {
+    printf("Error listening!\n");
+    goto end;
+  }
 
+  while (1) {
     int len = sizeof(cli);
 
     int connfd = accept(sockfd, (struct sockaddr *)&cli, (socklen_t *)&len);
 
     if (connfd < 0) {
-      printf("Server accept failed!\n");
-      goto end;
+      if (errno != EINTR) {
+        printf("\npid:%d Server accept failed!\n", getpid());
+        goto end;
+      } else {
+        continue;
+      }
     }
     printf("Accepted!\n");
     // create a child processs to handle new connection
@@ -186,19 +211,21 @@ int main(int argc, char *argv[]) {
       sigaction(SIGTERM, &sa, NULL);
       sigaction(SIGINT, &sa, NULL);
       handleConn(connfd);
-    } else {
+
+    } else if (worker_pid > 0) {
       arrput(childrenArr, worker_pid);
+    } else {
+      // error
+      printf("Fork failed!\n");
     }
   }
-  goto end;
+
 end:
   printf("Stopping server!\n");
 
   close(sockfd);
   // kill all worker processes
   kill(0, SIGTERM);
-
-  return 0;
 
   return 0;
 }

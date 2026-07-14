@@ -3,14 +3,17 @@
     {
       "name": "linux-gcc-x64",
       "includePath": [
-        "${workspaceFolder}/**"
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/include"
       ],
+      "defines":[],
+      "env": {"includePath":"include"},
       "compilerPath": "/usr/bin/gcc",
-      "cStandard": "${default}",
+      "cStandard": "c23",
       "cppStandard": "${default}",
       "intelliSenseMode": "linux-gcc-x64",
       "compilerArgs": [
-        ""
+        "-Iinclude"
       ]
     }
   ],
