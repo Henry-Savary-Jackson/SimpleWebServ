@@ -1,6 +1,6 @@
-#ifndef HTTP_H
-#define HTTP_H
-#include "global.h"
+#pragma once
+
+#include <utils.h>
 
 #define CONTENT_LENGTH_HEADER_NAME "Content-Length"
 #define TRANSFER_CODING_HEADER_NAME "Transfer-Coding"
@@ -81,4 +81,3 @@ void freeHTTPResponse(HTTPResponse *response);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
 
 void init_code_to_phrase();
-#endif
