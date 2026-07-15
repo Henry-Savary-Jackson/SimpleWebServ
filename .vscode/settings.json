@@ -35,11 +35,18 @@
   ],
   "C_Cpp_Runner.enableWarnings": true,
   "C_Cpp_Runner.warningsAsError": false,
-  "C_Cpp_Runner.compilerArgs": [ "-Iinclude"],
-  "C_Cpp_Runner.linkerArgs": [],
-  "C_Cpp_Runner.includePaths": [ "include"],
+  "C_Cpp_Runner.compilerArgs": [
+    "-Iinclude"
+  ],
+  "C_Cpp_Runner.linkerArgs": [
+    "-v"
+  ],
+  "C_Cpp_Runner.includePaths": [
+    "include"
+  ],
   "C_Cpp_Runner.includeSearch": [
     "*",
+    "./include/**",
     "**/*"
   ],
   "C_Cpp_Runner.excludeSearch": [
