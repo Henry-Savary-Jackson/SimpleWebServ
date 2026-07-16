@@ -6,6 +6,7 @@
 #define TRANSFER_CODING_HEADER_NAME "Transfer-Coding"
 #define HOST_HEADER_NAME "Host"
 #define LOCATION_HEADER_NAME "Location"
+#define CONNECTION_HEADER_NAME "Connection"
 
 // method
 #define HTTP_METHOD_GET "GET"

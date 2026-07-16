@@ -5,7 +5,7 @@
     ],
     "editor.renderWhitespace": "trailing",
     "editor.suggestSelection": "first",
-    "editor.cursorSmoothCaretAnimation": "on",
+    "editor.cursorSmoothCaretAnimation": "off",
     "terminal.integrated.defaultProfile.windows": "Command Prompt",
     "explorer.compactFolders": false,
     "explorer.confirmDragAndDrop": false,
@@ -104,7 +104,7 @@
     "C_Cpp.formatting": "clangFormat",
     "[c]": {
         "editor.formatOnSave": false,
-        "editor.defaultFormatter": "ms-vscode.cpptools"
+        "editor.defaultFormatter": "KylinIdeTeam.kylin-clangd"
     },
     "[cpp]": {
         "editor.formatOnSave": false,

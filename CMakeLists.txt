@@ -10,22 +10,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-# add_subdirectory(src/utils utils)
-# add_subdirectory(src/http http)
-# add_subdirectory(src/parser parser)
-# add_subdirectory(src/server server)
-
 add_executable(output
         src/main.c
         src/utils/utils.c
+        src/utils/threadpool.c
         src/http/http.c
         src/parser/parser.c
         src/server/server.c
 )
 
 target_include_directories(output PUBLIC include)
-target_link_libraries(output  pthread )
+target_link_libraries(output PUBLIC pthread )
 # alternative cmake -DCMAKE_BUILD_TYPE=Debug <path and other arguments>
 # create compile commands for intelli sense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-

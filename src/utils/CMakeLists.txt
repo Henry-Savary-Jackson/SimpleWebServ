@@ -10,7 +10,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(utils STATIC utils.c )
-target_include_directories( utils PUBLIC ../../include)
-
-
+add_library(utilslib STATIC utils.c )
+target_include_directories( utilslib PUBLIC ../../include)
