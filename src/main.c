@@ -25,7 +25,6 @@
 Server server;
 
 void sighandler_parent(int signal) {
-  killChildrenProcesses(&server);
   freeServer(&server);
 }
 
@@ -34,10 +33,6 @@ void chlddeth(int signal) { printf("Death of child!\n"); }
 int main(int argc, char *argv[]) {
   init_code_to_phrase();
 
-  if (argc <= 2) {
-    printf("Too few arguments!\n");
-    exit(-1);
-  }
   char addr[100];
   uint port = 8080;
 
@@ -47,10 +42,15 @@ int main(int argc, char *argv[]) {
   while ((opt = getopt(argc, argv, opts)) != -1) {
     switch (opt) {
     case 'b':
-      strncpy(addr, optarg, sizeof(addr));
+      if (!optarg) {
+        strcpy(addr, "0.0.0.0");
+      } else {
+        strncpy(addr, optarg, sizeof(addr));
+      }
       break;
     case 'p':
-      port = atoi(optarg);
+      if (optarg)
+        port = atoi(optarg);
       break;
     }
   }
@@ -70,10 +70,9 @@ int main(int argc, char *argv[]) {
   sigaction(SIGCHLD, &sa2, NULL);
 
   initServer(&server, "localhost", "mywebserver", "webroot");
-  setServerAddress(&server, addr, port);
+  setServerAddress(&server, "0.0.0.0", PORT);
   bindSocket(&server);
   launch(&server);
-  freeServer(&server);
   hmfree(code_to_phrase);
   // kill all worker processes
 

@@ -1,6 +1,9 @@
-#include <utils.h>
 #include <http.h>
 #include <stb_ds.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <utils.h>
 
 const char *HTTP_OK_PHRASE = "OK";
 const char *HTTP_NO_CONTENT_PHRASE = "No Content";
@@ -14,7 +17,7 @@ const char *HTTP_METHOD_UNSUPPORTED_PHRASE = "Method Not Allowed";
 const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE = "Length Required";
 const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 
-HttpCodePhrase* code_to_phrase = NULL;
+HttpCodePhrase *code_to_phrase = NULL;
 
 void initHTTPRequest(HTTPRequest *request) {
   initString(&request->method);
@@ -41,8 +44,21 @@ void initHTTPResponse(HTTPResponse *response) {
   response->statusCode = 0;
   response->body = NULL;
   sh_new_arena(response->headers);
+  initString(&response->version);
   response->request = NULL;
 }
+
+void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) {
+  response->contentLength = contentLength;
+  if (response->body)
+    free(response->body);
+  response->body = malloc(contentLength);
+  memcpy(response->body, buffer, contentLength);
+  char contentLengthS[32];
+  sprintf(contentLengthS, "%d", contentLength);
+  shput(response->headers, CONTENT_LENGTH_HEADER_NAME, strdup(contentLengthS));
+}
+
 void freeHTTPResponse(HTTPResponse *response) {
   if (response->body)
     free(response->body);

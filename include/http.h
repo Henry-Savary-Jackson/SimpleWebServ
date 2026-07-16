@@ -80,4 +80,5 @@ void freeHTTPRequest(HTTPRequest *request);
 void freeHTTPResponse(HTTPResponse *response);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
 
+void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();

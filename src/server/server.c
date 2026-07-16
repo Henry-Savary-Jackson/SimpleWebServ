@@ -39,7 +39,6 @@ void freeServer(Server *s) {
     close(s->socketfd);
   if (s->childrenProcesses)
     killChildrenProcesses(s);
-
   arrfree(s->childrenProcesses);
 }
 
@@ -71,7 +70,8 @@ int bindSocket(Server *s) {
     printf("%d Failed to bind to port!\n", errno);
     return -1;
   }
-  printf("PID: %d \nPort %d bound on address %s !\n", getpid(), s->port, s->ipAddr);
+  printf("PID: %d \nPort %d bound on address %s !\n", getpid(), s->port,
+         s->ipAddr);
   return 0;
 }
 
@@ -85,41 +85,39 @@ void launch(Server *server) {
   int listen_result = listen(server->socketfd, MAX_CONN);
   if (listen_result) {
     printf("Error listening!\n");
-    goto end;
+    return;
   }
   while (1) {
     struct sockaddr_in cli;
+
     int len = sizeof(cli);
 
     int connfd =
         accept(server->socketfd, (struct sockaddr *)&cli, (socklen_t *)&len);
 
     if (connfd < 0) {
-      if (errno != EINTR) {
+      if (errno && errno != EINTR) {
         printf("\npid:%d Server accept failed!\n", getpid());
-        goto end;
+        return;
       } else {
         continue;
       }
-      int worker_pid = fork();
-      if (worker_pid == 0) {
-        // will handle termination normally
-        sigaction(SIGTERM, &sa, NULL);
-        sigaction(SIGINT, &sa, NULL);
-        handleConnection(connfd, server);
+    }
+    int worker_pid = fork();
+    if (worker_pid == 0) {
+      // will handle termination normally
+      sigaction(SIGTERM, &sa, NULL);
+      sigaction(SIGINT, &sa, NULL);
+      handleConnection(connfd, server);
 
-      } else if (worker_pid > 0) {
-        arrput(server->childrenProcesses, worker_pid);
-      } else {
-        // error
-        printf("Fork failed!\n");
-        goto end;
-      }
+    } else if (worker_pid > 0) {
+      arrput(server->childrenProcesses, worker_pid);
+    } else {
+      // error
+      printf("Fork failed!\n");
+      return;
     }
   }
-
-end:
-  printf("Stopping server \'%s\'!\n", server->name);
   return;
 }
 
@@ -143,14 +141,16 @@ void handleConnection(int connfd, Server *server) {
     initHTTPRequest(&request);
     HTTPResponse response;
     initHTTPResponse(&response);
-    response.request = &request;
     int result = scanRequest(connfd, &request, &keepAlive, &statusCode);
     response.statusCode = statusCode;
-    if (result == -1){
-        printf("%d", statusCode);
-        // error;
+    if (result == -1) {
+      printf("%d", statusCode);
+      // error;
     }
-
+    const char *resp = "Hello there man!";
+    setResponseBody(&response, (char *)resp, strlen(resp));
+    setRequest(&response, &request);
+    sendResponse(&response, connfd);
 
     freeHTTPRequest(&request);
     freeHTTPResponse(&response);

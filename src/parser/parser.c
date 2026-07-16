@@ -23,24 +23,28 @@ bool parseLine(char *dst, int writeOffset, char *src, int *readOffset) {
   // trying to follow RFC9112
 
   bool cr = false;
-  while (*readOffset < writeOffset) {
-    char c = src[*readOffset];
-    (*readOffset)++;
+  int i =0;
+  while (*readOffset + i < writeOffset) {
+    char c = src[*readOffset + i];
+    dst[i] = c;
+    i++;
 
     tokenIndex = (c == token[tokenIndex]) ? tokenIndex + 1 : 0;
-    if (tokenIndex > tokenSize) {
+    if (tokenIndex >= tokenSize) {
       // set to be null terminated
-      dst[*readOffset - 2] = 0;
+      dst[i- 2] = 0;
       // return with true to indicate that line has been parsed
+      *readOffset += i;
       return true;
     }
 
     if (cr)
-      dst[*readOffset - 2] = ' ';
+      dst[i- 2] = ' ';
     // replace lone CR with space according to RFC
 
     cr = !cr && c == '\r'; // detect lone carriage return
   }
+  *readOffset += i;
   return false;
 }
 
@@ -73,7 +77,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive,
     *status = HTTP_BAD_REQUEST;
     goto error;
   }
-  sprintf(version, "%s.%s\n", uri, method);
+  sprintf(version, "%d.%d", verMajor, verMinor);
 
   copyString(&request->method, method);
   copyString(&request->uri, uri);
@@ -120,8 +124,8 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive,
 
     char key[MAX_BUFFER_SIZE];
     char value[MAX_BUFFER_SIZE];
-    sscanf(currentLine, "%4095s: %4095s", key, value);
-    shput(headers, key, value);
+    sscanf(currentLine, "%4095[^:]: %4095s", key, value);
+    shput(headers, key, strdup(value));
     if (!strcmp(key, CONTENT_LENGTH_HEADER_NAME)) {
       request->contentLength = atoi(value);
     }
@@ -184,8 +188,10 @@ int sendResponse(HTTPResponse *response, int connfd) {
 
   send(connfd, firstline, strlen(firstline), MSG_NOSIGNAL);
   // allocate buffer for content lenght
+  // make sure content-length is present
+
   char *headersBuffer = NULL;
-  encodeHeaders(response->headers, headersBuffer);
+  encodeHeaders(response->headers, &headersBuffer);
   send(connfd, headersBuffer, strlen(headersBuffer), MSG_NOSIGNAL);
 
   if (response->body) {
@@ -195,18 +201,18 @@ int sendResponse(HTTPResponse *response, int connfd) {
   return 0;
 }
 
-int encodeHeaders(Header *headers, char *buffer) {
-  buffer = NULL;
+int encodeHeaders(Header *headers, char **buffer) {
+  *buffer = NULL;
 
   char currentLine[MAX_BUFFER_SIZE * 2 + 20]; //
 
   for (int i = 0; i < shlen(headers); i++) {
     sprintf(currentLine, "%s: %s\r\n", headers[i].key, headers[i].value);
     int lineLength = strlen(currentLine);
-    char *dst = arraddnptr(buffer, lineLength);
+    char *dst = arraddnptr(*buffer, lineLength);
     memcpy(dst, currentLine, lineLength);
   }
-  char *dst = arraddnptr(buffer, 3);
+  char *dst = arraddnptr(*buffer, 3);
   memcpy(dst, "\r\n", 3); // 3 to incldue \0 at the end
 
   return 0;
