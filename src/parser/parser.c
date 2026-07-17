@@ -1,4 +1,5 @@
 
+#include "arena.h"
 #include "http.h"
 #include "stb_ds.h"
 #include "utils.h"
@@ -55,7 +56,7 @@ bool parseLine(char *dst, int writeOffset, char *src, int *readOffset)
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
 {
     int consumedOffset = 0;
-    int length = strlen(queryParams);
+    int length = (int)strlen(queryParams);
     while (consumedOffset < length)
     {
         int readHead = consumedOffset;
@@ -65,16 +66,22 @@ int parseQueryParameters(char *queryParams, HTTPRequest *request)
         }
         //
         // null terminate
+        int lineLength = readHead - consumedOffset;
+        if (lineLength <= 0)
+        {
+            return -1;
+        }
+
         queryParams[readHead] = 0;
-        char key[length];
-        char value[length];
+        char key[lineLength];
+        char value[lineLength];
         int count = sscanf(queryParams + consumedOffset, "%[^=]=%s", key, value);
         if (count != 2)
         {
             return -1;
         }
         // add the dictionary
-        hmput(request->urlParams, key, strdup(value));
+        setQueryParam(request, key, value);
 
         consumedOffset = readHead + 1;
     }
@@ -85,7 +92,7 @@ int scanFirstLine(int connfd, HTTPRequest *request, char *buffer, int *readOffse
 {
     do
     {
-        *writeOffset += recv(connfd, buffer, MAX_BUFFER_SIZE - *writeOffset, 0);
+        *writeOffset += (int)recv(connfd, buffer, MAX_BUFFER_SIZE - *writeOffset, 0);
     } while (!parseLine(buffer, *writeOffset, buffer, readOffset));
 
     char uri[PATH_MAX];
@@ -94,26 +101,26 @@ int scanFirstLine(int connfd, HTTPRequest *request, char *buffer, int *readOffse
     char method[METHOD_MAX_SIZE];
     char version[METHOD_MAX_SIZE];
 
-    int verMajor = 0;
-    int verMinor = 0;
-    uint result = sscanf(buffer, "%15s %ms HTTP/%d.%d", method, &location, &verMajor, &verMinor);
-    if (result != 4)
+    uint count = sscanf(buffer, "%15s %ms HTTP/%s", method, &location, version);
+    if (count != 3)
     {
         return -1;
     }
-    uint count = sscanf(location, "%[^?]?%ms", uri, &queryParams);
+    count = sscanf(location, "%[^?]?%ms", uri, &queryParams);
     if (count >= 2)
     {
         // query paramters detected
         int result = parseQueryParameters(queryParams, request);
         if (result)
+        {
             return -1;
+        }
     }
-    sprintf(version, "%d.%d", verMajor, verMinor);
 
-    copyString(&request->method, method);
-    copyString(&request->uri, uri);
-    copyString(&request->version, version);
+    request->method = arena_strdup(&request->arena, method);
+    request->uri = arena_strdup(&request->arena, uri);
+    request->version = arena_strdup(&request->arena, version);
+
     return 0;
 }
 
@@ -138,7 +145,7 @@ int scanHeaders(int connfd, HTTPRequest *request, char *buffer, int *readoffset,
                 *readoffset = 0;
             }
             int nWritten = 0;
-            while ((nWritten = recv(connfd, buffer, MAX_BUFFER_SIZE - *writeoffset, 0)) == -1)
+            while ((nWritten = (int)recv(connfd, buffer, MAX_BUFFER_SIZE - *writeoffset, 0)) == -1)
             {
                 if (errno != EINTR)
                 {
@@ -159,17 +166,12 @@ int scanHeaders(int connfd, HTTPRequest *request, char *buffer, int *readoffset,
 
         // parse current line to a header key value pair
         // allocate a new key val pair
-
-        // could this be more efficient? quite a large buffer size
         char key[nBytesLine];
         char value[nBytesLine];
 
         sscanf(buffer + *readoffset, "%[^:]: %s", key, value);
-        shput(request->headers, key, strdup(value));
-        if (!strcmp(key, CONTENT_LENGTH_HEADER_NAME))
-        {
-            request->contentLength = atoi(value);
-        }
+
+        setHeader(request, key, value);
 
         // update the readoffset to end of current line
         *readoffset = tempReadOffset;
@@ -181,7 +183,7 @@ int scanBody(int connfd, HTTPRequest *request, int *status, char *buffer, int re
 {
     char *hasContLength = shget(request->headers, CONTENT_LENGTH_HEADER_NAME);
     char *hasTransferCoding = shget(request->headers, TRANSFER_CODING_HEADER_NAME);
-    if (!strcmp(HTTP_METHOD_GET, request->method.buf) && !hasContLength)
+    if (!strcmp(HTTP_METHOD_GET, request->method) && !hasContLength)
     {
         // ignore message body if a get request
         return 0;
@@ -192,12 +194,15 @@ int scanBody(int connfd, HTTPRequest *request, int *status, char *buffer, int re
         return -1;
         // read message body into request buffer
     }
+    assert(hasContLength);
+    // convert content length str to int;
+    request->contentLength = atoi(hasContLength);
     // read body of message using content length
-    // read the rest of the into readoffset
-    request->body = malloc(request->contentLength);
+    request->body = arena_alloc(&request->arena, request->contentLength);
 
     if (writeoffset > readoffset)
     {
+    // read the rest of the into readoffset
         memcpy(request->body, buffer + readoffset, writeoffset - readoffset);
     }
     int nrecv = 0;
@@ -208,7 +213,7 @@ int scanBody(int connfd, HTTPRequest *request, int *status, char *buffer, int re
     int contentLength = request->contentLength;
 
     while (nTotalWritten < contentLength &&
-           ((nrecv = recv(connfd, request->body + nTotalWritten, contentLength - nTotalWritten, MSG_NOSIGNAL)) == -1))
+           ((nrecv = (int)recv(connfd, request->body + nTotalWritten, contentLength - nTotalWritten, MSG_NOSIGNAL)) == -1))
     {
         // if the error code is simply the handling of a signal, then just
         // continue
@@ -254,7 +259,6 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         printf("Host header missing!");
         goto error;
     }
-
     scanBody(connfd, request, status, buffer, readoffset, writeoffset);
 success:
     char *connect = shget(request->headers, CONNECTION_HEADER_NAME);
@@ -274,7 +278,7 @@ int sendResponse(HTTPResponse *response, int connfd)
 
     sprintf(firstline,
             "HTTP/%s %d %s\r\n",
-            response->version.buf,
+            response->request->version,
             response->statusCode,
             hmget(code_to_phrase, response->statusCode));
 

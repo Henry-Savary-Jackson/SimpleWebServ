@@ -161,15 +161,14 @@ void handleConnection(int connfd, Server *server)
         initHTTPResponse(&response);
         int result = scanRequest(connfd, &request, &keepAlive, &statusCode);
         response.statusCode = statusCode;
+        setRequest(&response, &request);
         if (result == -1)
         {
             printf("%d", statusCode);
             // error;
         }
         const char *resp = "Hello there man!";
-        response.statusCode = HTTP_FORBIDDEN;
         setResponseBody(&response, (char *)resp, strlen(resp));
-        setRequest(&response, &request);
         sendResponse(&response, connfd);
 
         freeHTTPRequest(&request);

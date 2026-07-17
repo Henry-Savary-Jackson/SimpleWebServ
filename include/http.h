@@ -1,5 +1,6 @@
 #pragma once
 
+#include "arena.h"
 #include <utils.h>
 
 #define CONTENT_LENGTH_HEADER_NAME "Content-Length"
@@ -57,11 +58,12 @@ typedef struct {
 typedef struct {
   Header *headers;
   Header *urlParams;
-  String uri;
-  String method;
-  String version;
+  char* uri;
+  char* method;
+  char* version;
   int contentLength;
   char *body;
+  Arena arena;
 
 } HTTPRequest;
 
@@ -71,7 +73,7 @@ typedef struct {
   int contentLength;
   int statusCode;
   char *body;
-  String version;
+  Arena arena;
 
 } HTTPResponse;
 
@@ -80,6 +82,9 @@ void initHTTPResponse(HTTPResponse *response);
 void freeHTTPRequest(HTTPRequest *request);
 void freeHTTPResponse(HTTPResponse *response);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
+void allocDictToArena(Header *dict, Arena* strArena, char *key, char *value);
+#define setHeader(r,k,v) allocDictToArena((r)->headers,&(r)->arena, k, v )
+#define setQueryParam(r,k,v) allocDictToArena((r)->urlParams,&(r)->arena, k, v )
 
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();

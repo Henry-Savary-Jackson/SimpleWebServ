@@ -4,13 +4,8 @@
 #define STB_DS_IMPLEMENTATION
 #include <stb_ds.h>
 #include <utils.h>
-
-
-char* allocStringArena(void * dict, char * value){
-    stbds_array_header* header = stbds_header(dict);
-    stbds_hash_index* table = (stbds_hash_index*)(header->hash_table);
-    return stbds_stralloc(&table->string, value);
-}
+#define ARENA_IMPLEMENTATION
+#include <arena.h>
 
 void initString(String *s)
 {
