@@ -19,6 +19,8 @@
  */
 
 #include "cc_hashtable.h"
+#include "memory/cc_dynamic_pool.h"
+#include <string.h>
 
 #define DEFAULT_CAPACITY 16
 #define DEFAULT_LOAD_FACTOR 0.75f
@@ -31,6 +33,7 @@ struct cc_hashtable_s {
     int          key_len;
     float        load_factor;
     TableEntry **buckets;
+    CC_DynamicPool* pool;
 
     size_t  (*hash)       (const void *key, int l, uint32_t seed);
     int     (*key_cmp)    (const void *k1, const void *k2);
@@ -103,6 +106,7 @@ enum cc_stat cc_hashtable_new_conf(CC_HashTableConf const * const conf, CC_HashT
     table->mem_alloc   = conf->mem_alloc;
     table->mem_calloc  = conf->mem_calloc;
     table->mem_free    = conf->mem_free;
+    table->pool        = conf->pool;
     table->threshold   = (size_t) (table->capacity * table->load_factor);
 
     *out = table;
@@ -125,6 +129,7 @@ void cc_hashtable_conf_init(CC_HashTableConf *conf)
     conf->mem_alloc        = malloc;
     conf->mem_calloc       = calloc;
     conf->mem_free         = free;
+    conf->pool = NULL;
 }
 
 /**
@@ -177,6 +182,13 @@ enum cc_stat cc_hashtable_add(CC_HashTable *table, void *key, void *val)
     const size_t hash = table->hash(key, table->key_len, table->hash_seed);
     const size_t i    = hash & (table->capacity - 1);
 
+    if (table->pool){
+        int valLen = strlen(val)+1;
+        void* newVal = cc_dynamic_pool_malloc(valLen, table->pool);
+        strcpy(newVal, val);
+        val = newVal;
+    }
+
     TableEntry *replace = table->buckets[i];
 
     while (replace) {
@@ -192,6 +204,13 @@ enum cc_stat cc_hashtable_add(CC_HashTable *table, void *key, void *val)
 
     if (!new_entry)
         return CC_ERR_ALLOC;
+
+    if (table->pool){
+        int keyLen = strlen(key)+1;
+        void* newKey = cc_dynamic_pool_malloc(keyLen, table->pool);
+        strcpy(newKey, key);
+        key = newKey;
+    }
 
     new_entry->key   = key;
     new_entry->value = val;

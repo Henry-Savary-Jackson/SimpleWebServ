@@ -120,7 +120,7 @@ enum http_stream_status consumeBody(HTTPStream *stream, char **out, int contentL
         }
     }
     *out = stream->ptr + stream->consumedoffset;
-    stream->consumedoffset +=  contentLength;
+    stream->consumedoffset += contentLength;
     return RECV_SUCCESS;
 }
 
@@ -170,24 +170,31 @@ int initHTTPRequest(HTTPRequest *request)
     request->version = NULL;
     request->contentLength = 0;
     request->body = NULL;
-    CC_HashTableConf config;
-    cc_hashtable_conf_init(&config);
-    config.key_length = KEY_LENGTH_VARIABLE;
-    config.hash = STRING_HASH;
-    config.key_compare = CC_CMP_STRING;
-    enum cc_stat result = cc_hashtable_new_conf(&config, &request->headers);
-    if (result != CC_OK) {
-        return -1;
-}
-    enum cc_stat resultParams = cc_hashtable_new_conf(&config, &request->urlParams);
-    if (resultParams != CC_OK) {
-        return -1;
-}
 
-    CC_DynamicPoolConf conf;
-    cc_dynamic_pool_conf_init(&conf);
-    conf.exp_factor = 2;
-    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &conf, &request->pool);
+    CC_DynamicPoolConf poolConf;
+    cc_dynamic_pool_conf_init(&poolConf);
+    poolConf.exp_factor = 2;
+    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &poolConf, &request->pool);
+
+    CC_HashTableConf htConf;
+    cc_hashtable_conf_init(&htConf);
+    htConf.key_length = KEY_LENGTH_VARIABLE;
+    htConf.hash = STRING_HASH;
+    htConf.key_compare = CC_CMP_STRING;
+    htConf.pool = request->pool;
+
+    enum cc_stat result = cc_hashtable_new_conf(&htConf, &request->headers);
+    if (result != CC_OK)
+    {
+        return -1;
+    }
+    enum cc_stat resultParams = cc_hashtable_new_conf(&htConf, &request->urlParams);
+    if (resultParams != CC_OK)
+    {
+        return -1;
+    }
+
+
     return 0;
 }
 
@@ -205,20 +212,21 @@ int initHTTPResponse(HTTPResponse *response)
     response->body = NULL;
     response->headers = NULL;
     response->request = NULL;
+    CC_DynamicPoolConf poolConf;
+    cc_dynamic_pool_conf_init(&poolConf);
+    poolConf.exp_factor = 2;
+    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &poolConf, &response->pool);
 
-    CC_HashTableConf config;
-    cc_hashtable_conf_init(&config);
-    config.key_length = KEY_LENGTH_VARIABLE;
-    config.hash = STRING_HASH;
-    config.key_compare = CC_CMP_STRING;
-    enum cc_stat result = cc_hashtable_new_conf(&config, &response->headers);
+    CC_HashTableConf htConf;
+    cc_hashtable_conf_init(&htConf);
+    htConf.key_length = KEY_LENGTH_VARIABLE;
+    htConf.hash = STRING_HASH;
+    htConf.key_compare = CC_CMP_STRING;
+    htConf.pool = response->pool;
+
+    enum cc_stat result = cc_hashtable_new_conf(&htConf, &response->headers);
     if (result != CC_OK)
         return -1;
-    CC_DynamicPoolConf conf;
-    cc_dynamic_pool_conf_init(&conf);
-    conf.exp_factor = 2;
-    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &conf, &response->pool);
-
     return 0;
 }
 
@@ -226,10 +234,11 @@ void setResponseBody(HTTPResponse *response, char *buffer, int contentLength)
 {
     response->contentLength = contentLength;
 
-    if (response->body){
-      cc_dynamic_pool_free(response->body, response->pool);
+    if (response->body)
+    {
+        cc_dynamic_pool_free(response->body, response->pool);
     }
-    response->body =cc_dynamic_pool_malloc(response->contentLength, response->pool);
+    response->body = cc_dynamic_pool_malloc(response->contentLength, response->pool);
     memcpy(response->body, buffer, contentLength);
     char contentLengthS[32];
     sprintf(contentLengthS, "%d", contentLength);
@@ -249,29 +258,23 @@ void setRequest(HTTPResponse *resp, HTTPRequest *resq)
 void init_code_to_phrase()
 {
     cc_hashtable_new(&code_to_phrase);
-    cc_hashtable_add(code_to_phrase, &HTTP_OK, HTTP_OK_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_NO_CONTENT, HTTP_NO_CONTENT_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_OK, HTTP_OK_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_NO_CONTENT, HTTP_NO_CONTENT_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_MOVED, HTTP_MOVED_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_NOT_MODIFIED, HTTP_NOT_MODIFIED_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_BAD_REQUEST, HTTP_BAD_REQUEST_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_UNAUTHORIZED, HTTP_UNAUTHORIZED_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_FORBIDDEN, HTTP_FORBIDDEN_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_NOT_FOUND, HTTP_NOT_FOUND_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_METHOD_UNSUPPORTED, HTTP_METHOD_UNSUPPORTED_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_CONTENT_LENGTH_REQUIRED, HTTP_CONTENT_LENGTH_REQUIRED_PHRASE);
-    cc_hashtable_add(code_to_phrase, &HTTP_SERVER_ERROR, HTTP_SERVER_ERROR_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_OK, (char *)HTTP_OK_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_NO_CONTENT, (char *)HTTP_NO_CONTENT_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_OK, (char *)HTTP_OK_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_NO_CONTENT, (char *)HTTP_NO_CONTENT_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_MOVED, (char *)HTTP_MOVED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_MODIFIED, (char *)HTTP_NOT_MODIFIED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_BAD_REQUEST, (char *)HTTP_BAD_REQUEST_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_UNAUTHORIZED, (char *)HTTP_UNAUTHORIZED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_FORBIDDEN, (char *)HTTP_FORBIDDEN_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_FOUND, (char *)HTTP_NOT_FOUND_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_METHOD_UNSUPPORTED, (char *)HTTP_METHOD_UNSUPPORTED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_CONTENT_LENGTH_REQUIRED, (char *)HTTP_CONTENT_LENGTH_REQUIRED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
 
 
-void allocDictToArena(CC_HashTable *dict, CC_DynamicPool *pool, char *key, char *value)
+void allocDictToArena(CC_HashTable *dict, char *key, char *value)
 {
-  char *key_ptr = cc_dynamic_pool_malloc(strlen(key) + 1, pool);
-  strcpy(key_ptr, key);
-
-  char *value_ptr = cc_dynamic_pool_malloc(strlen(value) + 1, pool);
-  strcpy(value_ptr, value);
-
-  cc_hashtable_add(dict, key_ptr, value_ptr);
+    cc_hashtable_add(dict, key, value);
 }

@@ -118,9 +118,9 @@ int initHTTPResponse(HTTPResponse *response);
 void freeHTTPRequest(HTTPRequest *request);
 void freeHTTPResponse(HTTPResponse *response);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
-void allocDictToArena(CC_HashTable* dict, CC_DynamicPool* pool, char *key, char *value);
-#define setHeader(r,k,v) allocDictToArena((r)->headers,(r)->pool, k, v )
-#define setQueryParam(r,k,v) allocDictToArena((r)->urlParams,(r)->pool, k, v )
+void allocDictToArena(CC_HashTable* dict, char *key, char *value);
+#define setHeader(r,k,v) allocDictToArena((r)->headers, k, v )
+#define setQueryParam(r,k,v) allocDictToArena((r)->urlParams, k, v )
 
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();

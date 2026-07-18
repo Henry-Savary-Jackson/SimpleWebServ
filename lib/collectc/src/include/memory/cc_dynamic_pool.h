@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with Collections-C.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 #ifndef _CC_DYNAMIC_POOL_H_
 #define _CC_DYNAMIC_POOL_H_
 
@@ -29,21 +28,21 @@ extern "C" {
 
 /**
 A memory pool allocated on the heap. By default its size
-is fixed, but it can be optinally set to expand once it's 
+is fixed, but it can be optinally set to expand once it's
 full.
 */
 typedef struct cc_dynamic_pool_s CC_DynamicPool;
 
 typedef struct cc_dynamic_pool_conf_s {
     /**
-     * The rate at which the pool expands (initial_size * exp_factor). 
-     * Must be a positive. Only has an effect if the the pool expansion 
+     * The rate at which the pool expands (initial_size * exp_factor).
+     * Must be a positive. Only has an effect if the the pool expansion
      * isn't fixed.
-     * 
-     * Example: 
+     *
+     * Example:
      * - if (exp_factor == 1) then linear growth
      * - if (exp_factor >  1) then accelarated growth
-     * - if (exp_factor <  1) then decaying growth 
+     * - if (exp_factor <  1) then decaying growth
      **/
     float  exp_factor;
 

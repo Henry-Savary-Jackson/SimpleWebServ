@@ -186,7 +186,8 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         *status = HTTP_BAD_REQUEST;
         goto error;
     }
-    // the Host header is required
+
+   // the Host header is required
     bool hasHost = cc_hashtable_contains_key(request->headers, HOST_HEADER_NAME);
     if (!hasHost)
     {
