@@ -14,7 +14,9 @@ void *task_handler(void *arg)
     {
         pthread_mutex_lock(&pool->queueMutex);
         while (pool->running && empty(&pool->taskQueue))
+        {
             pthread_cond_wait(&pool->avaialableSignal, &pool->queueMutex);
+        }
 
         if (!pool->running)
         {
@@ -39,7 +41,7 @@ void initThreadPool(ThreadPool *pool, int maxWorkers)
     pool->running = false;
     pthread_mutex_init(&pool->queueMutex, NULL);
     pthread_cond_init(&pool->avaialableSignal, NULL);
-    pool->workers = NULL;
+    cc_array_new(&pool->workers);
     initQueue(&pool->taskQueue, sizeof(Task));
 }
 void submitTask(ThreadPool *pool, void function(void *), void *args)
@@ -56,12 +58,13 @@ void shutDownThreadPool(ThreadPool *pool)
 {
     pthread_mutex_lock(&pool->queueMutex);
     pool->running = false;
+    // wake up all the current threads
     pthread_cond_broadcast(&pool->avaialableSignal);
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_t* thread;
-        cc_array_get_at(pool->workers, i, (void**)&thread);
+        pthread_t *thread;
+        cc_array_get_at(pool->workers, i, (void **)&thread);
         pthread_cancel(*thread);
         void *status;
         pthread_join(*thread, &status);
@@ -84,7 +87,7 @@ void startThreadPool(ThreadPool *pool)
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_t* worker = malloc(sizeof(pthread_t));
+        pthread_t *worker = malloc(sizeof(pthread_t));
         pthread_create(worker, NULL, task_handler, pool);
         cc_array_add(pool->workers, worker);
     }

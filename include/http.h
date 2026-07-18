@@ -1,6 +1,5 @@
 #pragma once
 
-#include "arena.h"
 #include "cc_hashtable.h"
 #include "memory/cc_dynamic_pool.h"
 #include <utils.h>
@@ -57,13 +56,13 @@ enum http_stream_status
     LF_REACHED,
     EOF_REACHED,
     EMPTY_LINE,
-    ERROR_RECV,
+    RECV_ERROR,
     RECV_SUCCESS,
     BUF_TOO_BIG,
 };
 
 #define HTTP_STREAM_MAX_BUFFER 4096
-#define HTTP_STREAM_INIT_BUFFER 128
+#define HTTP_STREAM_INIT_BUFFER 64
 extern const char *HTTP_LINE_END_TOK;
 extern const int HTTP_LINE_END_TOK_SIZE;
 

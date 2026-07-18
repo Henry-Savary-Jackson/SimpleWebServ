@@ -131,22 +131,6 @@ void launch(Server *server)
     }
 }
 
-// void killChildrenProcesses(Server *server)
-// {
-//     int len = arrlen(server->childrenProcesses);
-//     int *childrenCopy = malloc(sizeof(int) * len);
-//     memcpy(childrenCopy, server->childrenProcesses, sizeof(int) * len);
-//     int s = 0;
-//     for (int i = 0; i < len; i++)
-//     {
-//         int pid_child = childrenCopy[i];
-//         printf("killing child %d %d\n", pid_child, getpid());
-//         kill(pid_child, SIGTERM);
-//         waitpid(pid_child, &s, 0);
-//     }
-// }
-
-
 void handleConnection(int connfd, Server *server)
 {
     bool keepAlive = true;
@@ -164,7 +148,6 @@ void handleConnection(int connfd, Server *server)
         if (result == -1)
         {
             printf("%d", statusCode);
-            // error;
         }
         const char *resp = "Hello there man!";
         setResponseBody(&response, (char *)resp, strlen(resp));

@@ -35,8 +35,8 @@ typedef struct {
 void initGrowingBuffer(GrowingBuffer* buffer,CC_DynamicPool* pool, int capacity);
 void appendGrowingBuffer(GrowingBuffer* buffer, char* src, ssize_t size);
 
-void initString(String *s);
-void freeString(String *s);
+void initString(String *str);
+void freeString(String *str);
 void copyString(String *dst, char *src);
 char *allocStringArena(void *dict, char *value);
 

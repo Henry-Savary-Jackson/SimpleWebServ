@@ -1,13 +1,9 @@
-#include "cc_common.h"
 #include "memory/cc_dynamic_pool.h"
-#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
 #include <utils.h>
-#define ARENA_IMPLEMENTATION
-#include <arena.h>
 
 void initGrowingBuffer(GrowingBuffer *buffer, CC_DynamicPool *pool, int capacity)
 {

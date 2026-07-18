@@ -14,10 +14,10 @@ typedef struct {
   ThreadPool pool;
 } Server;
 
-void initServer(Server* s, char* host, char* name, char* webroot , int maxWorkers);
-void setServerAddress(Server *s, char *ipAddr, int port) ;
-int bindSocket(Server* s);
-void freeServer(Server* s);
+void initServer(Server* server, char* host, char* name, char* webroot , int maxWorkers);
+void setServerAddress(Server *server, char *ipAddr, int port) ;
+int bindSocket(Server* server);
+void freeServer(Server* server);
 void handleConnection(int connfd, Server *server) ;
 
 void launch(Server *server) ;

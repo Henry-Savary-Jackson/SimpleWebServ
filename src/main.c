@@ -20,6 +20,7 @@
 #include <unistd.h>
 #define MAX_WORKERS 10
 #define PORT 8080
+#define IP_ADDR_SIZE 32
 
 Server server;
 
@@ -39,8 +40,8 @@ int main(int argc, char *argv[])
 {
     init_code_to_phrase();
 
-    char addr[100];
-    uint port = 8080;
+    char addr[IP_ADDR_SIZE];
+    uint port = PORT;
 
     const char *opts = "b:p:";
     char opt;
@@ -64,6 +65,9 @@ int main(int argc, char *argv[])
             {
                 port = atoi(optarg);
             }
+            break;
+
+        default:
             break;
         }
     }
@@ -102,7 +106,7 @@ int main(int argc, char *argv[])
 
     // printf("Result:%s", shget(headers,const_type));
     initServer(&server, "localhost", "mywebserver", "webroot", MAX_WORKERS);
-    setServerAddress(&server, addr, port);
+    setServerAddress(&server, addr, (int)port);
     bindSocket(&server);
     launch(&server);
     cc_hashtable_destroy(code_to_phrase);

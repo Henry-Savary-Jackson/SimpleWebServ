@@ -18,7 +18,7 @@
 
 #define MAX_BUFFER_SIZE 4096
 #define BUFFER_INCREMENTS 4096
-#define INIT_BUFFER_SIZE 2048
+#define INIT_BUFFER_SIZE 16
 #define METHOD_MAX_SIZE 16
 
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
@@ -91,18 +91,18 @@ int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
         }
     }
 
-    int methodLen = strlen(method);
-    int uriLen = strlen(uri);
-    int versionlen = strlen(version);
+    int methodLen = strlen(method) +1;
+    int uriLen = strlen(uri) + 1;
+    int versionlen = strlen(version)+1;
 
     request->method = cc_dynamic_pool_malloc(methodLen, request->pool);
-    memcpy(request->method, method, methodLen + 1);
+    memcpy(request->method, method, methodLen );
 
-    request->uri = cc_dynamic_pool_malloc(strlen(uri), request->pool);
-    memcpy(request->uri, method, uriLen + 1);
+    request->uri = cc_dynamic_pool_malloc(uriLen, request->pool);
+    memcpy(request->uri, uri, uriLen );
 
-    request->version = cc_dynamic_pool_malloc(strlen(version), request->pool);
-    memcpy(request->version, version, versionlen + 1);
+    request->version = cc_dynamic_pool_malloc(versionlen, request->pool);
+    memcpy(request->version, version, versionlen);
 
 
     return 0;
