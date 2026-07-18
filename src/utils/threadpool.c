@@ -1,6 +1,6 @@
+#include "cc_array.h"
 #include "utils.h"
 #include <pthread.h>
-#include <stb_ds.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,9 +60,13 @@ void shutDownThreadPool(ThreadPool *pool)
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_cancel(pool->workers[i]);
+        pthread_t* thread;
+        cc_array_get_at(pool->workers, i, (void**)&thread);
+        pthread_cancel(*thread);
         void *status;
-        pthread_join(pool->workers[i], &status);
+        pthread_join(*thread, &status);
+        // must free
+        free(thread);
     }
 }
 void freeThreadPool(ThreadPool *pool)
@@ -80,8 +84,8 @@ void startThreadPool(ThreadPool *pool)
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_t worker;
-        pthread_create(&worker, NULL, task_handler, pool);
-        arrput(pool->workers, worker);
+        pthread_t* worker = malloc(sizeof(pthread_t));
+        pthread_create(worker, NULL, task_handler, pool);
+        cc_array_add(pool->workers, worker);
     }
 }

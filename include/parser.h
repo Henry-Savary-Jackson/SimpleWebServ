@@ -1,9 +1,10 @@
 #pragma once
 
 
+#include "cc_hashtable.h"
 #include "http.h"
-int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive,
-                 int *status) ;
+#include "utils.h"
+int scanRequest(int connfd, HTTPRequest *request, bool *keepAliv, int* status) ;
 
 int sendResponse(HTTPResponse *response, int connfd) ;
-int encodeHeaders(Header *headers, char **buffer) ;
+int encodeHeaders(CC_HashTable* headers, GrowingBuffer* buffer) ;

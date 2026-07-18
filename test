@@ -1,0 +1,2 @@
+#!/bin/bash
+curl -v -H "myname: henry" -d "182nxnd39y98yfihiuhf983y98y83yigeigieguegug7878787878hellothere" "http://localhost:8000/path/to/somehwere?name=who&name=what&mynameis=slimshady"

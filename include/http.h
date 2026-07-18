@@ -1,6 +1,8 @@
 #pragma once
 
 #include "arena.h"
+#include "cc_hashtable.h"
+#include "memory/cc_dynamic_pool.h"
 #include <utils.h>
 
 #define CONTENT_LENGTH_HEADER_NAME "Content-Length"
@@ -16,17 +18,17 @@
 #define HTTP_METHOD_DELETE "DELETE"
 
 // status code
-#define HTTP_OK 200
-#define HTTP_NO_CONTENT 204
-#define HTTP_MOVED 301
-#define HTTP_NOT_MODIFIED 304
-#define HTTP_BAD_REQUEST 400
-#define HTTP_UNAUTHORIZED 401
-#define HTTP_FORBIDDEN 403
-#define HTTP_NOT_FOUND 404
-#define HTTP_METHOD_UNSUPPORTED 405
-#define HTTP_CONTENT_LENGTH_REQUIRED 411
-#define HTTP_SERVER_ERROR 500
+extern const int HTTP_OK ;
+extern const int HTTP_NO_CONTENT ;
+extern const int HTTP_MOVED ;
+extern const int HTTP_NOT_MODIFIED ;
+extern const int HTTP_BAD_REQUEST ;
+extern const int HTTP_UNAUTHORIZED;
+extern const int HTTP_FORBIDDEN;
+extern const int HTTP_NOT_FOUND;
+extern const int HTTP_METHOD_UNSUPPORTED;
+extern const int HTTP_CONTENT_LENGTH_REQUIRED;
+extern const int HTTP_SERVER_ERROR;
 
 // status code reason phrase
 
@@ -48,7 +50,42 @@ typedef struct {
   const char *value;
 } HttpCodePhrase;
 
-extern HttpCodePhrase *code_to_phrase;
+extern CC_HashTable *code_to_phrase;
+
+enum http_stream_status
+{
+    LF_REACHED,
+    EOF_REACHED,
+    EMPTY_LINE,
+    ERROR_RECV,
+    RECV_SUCCESS,
+    BUF_TOO_BIG,
+};
+
+#define HTTP_STREAM_MAX_BUFFER 4096
+#define HTTP_STREAM_INIT_BUFFER 128
+extern const char *HTTP_LINE_END_TOK;
+extern const int HTTP_LINE_END_TOK_SIZE;
+
+typedef struct
+{
+    int capacity;
+    int connfd;
+    int head;
+    int consumedoffset;
+    int writeoffset;
+    int tokenIndex; // how far into the end token has been reached, incase stream terminates at CR char
+    char *ptr;
+    CC_DynamicPool *pool;
+} HTTPStream;
+
+void initHTTPStream(HTTPStream *stream, int connfd, CC_DynamicPool *pool);
+enum http_stream_status consumeUntilLineFeed(HTTPStream *stream);
+enum http_stream_status readLine(HTTPStream *stream, int *lineLength, char **output);
+enum http_stream_status consumeBody(HTTPStream *stream, char **out, int contentLength);
+void consumeUntilEOF(HTTPStream *stream, char *dest, int *nWritten);
+enum http_stream_status receiveData(HTTPStream *stream);
+
 
 typedef struct {
   char *key;
@@ -56,35 +93,35 @@ typedef struct {
 } Header;
 
 typedef struct {
-  Header *headers;
-  Header *urlParams;
+  CC_HashTable * headers;
+  CC_HashTable *urlParams;
   char* uri;
   char* method;
   char* version;
   int contentLength;
   char *body;
-  Arena arena;
+  CC_DynamicPool* pool;
 
 } HTTPRequest;
 
 typedef struct {
   HTTPRequest *request;
-  Header *headers;
+  CC_HashTable * headers;
   int contentLength;
   int statusCode;
   char *body;
-  Arena arena;
+  CC_DynamicPool* pool;
 
 } HTTPResponse;
 
-void initHTTPRequest(HTTPRequest *request);
-void initHTTPResponse(HTTPResponse *response);
+int initHTTPRequest(HTTPRequest *request);
+int initHTTPResponse(HTTPResponse *response);
 void freeHTTPRequest(HTTPRequest *request);
 void freeHTTPResponse(HTTPResponse *response);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
-void allocDictToArena(Header *dict, Arena* strArena, char *key, char *value);
-#define setHeader(r,k,v) allocDictToArena((r)->headers,&(r)->arena, k, v )
-#define setQueryParam(r,k,v) allocDictToArena((r)->urlParams,&(r)->arena, k, v )
+void allocDictToArena(CC_HashTable* dict, CC_DynamicPool* pool, char *key, char *value);
+#define setHeader(r,k,v) allocDictToArena((r)->headers,(r)->pool, k, v )
+#define setQueryParam(r,k,v) allocDictToArena((r)->urlParams,(r)->pool, k, v )
 
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();

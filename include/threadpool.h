@@ -1,12 +1,13 @@
 #pragma once
 
+#include "cc_array.h"
 #include "utils.h"
 #include <bits/pthreadtypes.h>
 #include <stdatomic.h>
 
 typedef struct {
     int maxWorkers;
-    pthread_t* workers;
+    CC_Array* workers;
     pthread_mutex_t queueMutex;
     pthread_cond_t avaialableSignal;
     bool running;

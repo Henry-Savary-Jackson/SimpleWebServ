@@ -1,5 +1,5 @@
+#include "cc_hashtable.h"
 #include "http.h"
-#include <pthread.h>
 #include "server.h"
 #include "threadpool.h"
 #include <arpa/inet.h>
@@ -8,6 +8,7 @@
 #include <linux/limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,9 +18,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-#include <stb_ds.h>
-
 #define MAX_WORKERS 10
 #define PORT 8080
 
@@ -84,11 +82,30 @@ int main(int argc, char *argv[])
     sigemptyset(&sa.sa_mask);
     sigaction(SIGCHLD, &sa2, NULL);
 
+    // Header *headers;
+    // > Host: localhost:8000
+    // > User-Agent: curl/8.19.0
+    // > Accept: */*
+    // > Content-Length: 63
+    // > Content-Type: application/x-www-form-urlencoded
+    // >
+
+    // const char *const_type = "Content-Type";
+    // char c[100];
+    // memcpy(c, const_type, strlen(const_type));
+    // sh_new_arena(headers);
+    // shput(headers, strdup("Host"), strdup("localhost:8000"));
+    // shput(headers, strdup("User-Agent"), strdup("curl/8.19.0"));
+    // shput(headers, strdup("Accept"), strdup("*/*"));
+    // shput(headers, strdup("Content-Length"), strdup("63"));
+    // shput(headers, strdup(const_type), strdup("application/x-www-form-urlencoded"));
+
+    // printf("Result:%s", shget(headers,const_type));
     initServer(&server, "localhost", "mywebserver", "webroot", MAX_WORKERS);
     setServerAddress(&server, addr, port);
     bindSocket(&server);
     launch(&server);
-    hmfree(code_to_phrase);
+    cc_hashtable_destroy(code_to_phrase);
     // kill all worker processes
 
     return 0;

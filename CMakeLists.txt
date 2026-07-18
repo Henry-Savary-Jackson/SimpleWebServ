@@ -8,8 +8,10 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+
 set(CMAKE_BUILD_TYPE Debug)
 
+add_subdirectory(lib/collectc)
 add_executable(output
         src/main.c
         src/utils/utils.c
@@ -20,6 +22,7 @@ add_executable(output
 )
 
 target_include_directories(output PUBLIC include)
+target_include_directories(output PUBLIC lib/collectc/src/include)
 target_link_libraries(output PUBLIC pthread )
 # alternative cmake -DCMAKE_BUILD_TYPE=Debug <path and other arguments>
 # create compile commands for intelli sense

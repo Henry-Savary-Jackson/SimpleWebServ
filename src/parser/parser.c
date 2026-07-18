@@ -1,9 +1,11 @@
-
-#include "arena.h"
+#include "cc_array.h"
+#include "cc_common.h"
+#include "cc_hashtable.h"
 #include "http.h"
-#include "stb_ds.h"
+#include "memory/cc_dynamic_pool.h"
 #include "utils.h"
 #include <asm-generic/errno-base.h>
+#include <assert.h>
 #include <complex.h>
 #include <errno.h>
 #include <linux/limits.h>
@@ -12,46 +14,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #define MAX_BUFFER_SIZE 4096
+#define BUFFER_INCREMENTS 4096
+#define INIT_BUFFER_SIZE 2048
 #define METHOD_MAX_SIZE 16
-
-bool parseLine(char *dst, int writeOffset, char *src, int *readOffset)
-{
-    // return whether the line has terminated
-    const char *token = "\r\n";
-    int tokenSize = strlen(token);
-    int tokenIndex = 0;
-    // trying to follow RFC9112
-
-    bool cr = false;
-    int i = 0;
-    while (*readOffset + i < writeOffset)
-    {
-        char c = src[*readOffset + i];
-        dst[i] = c;
-        i++;
-
-        tokenIndex = (c == token[tokenIndex]) ? tokenIndex + 1 : 0;
-        if (tokenIndex >= tokenSize)
-        {
-            // set to be null terminated, so that sscanf and strlen works
-            dst[i - 2] = 0;
-            // return with true to indicate that line has been parsed
-            *readOffset += i;
-            return true;
-        }
-
-        if (cr)
-            dst[i - 2] = ' ';
-        // replace lone CR with space according to RFC
-
-        cr = !cr && c == '\r'; // detect lone carriage return
-    }
-    *readOffset += i;
-    return false;
-}
-
 
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
 {
@@ -88,25 +56,31 @@ int parseQueryParameters(char *queryParams, HTTPRequest *request)
     return 0;
 }
 
-int scanFirstLine(int connfd, HTTPRequest *request, char *buffer, int *readOffset, int *writeOffset)
+int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
 {
-    do
+
+    char *firstLine = NULL;
+    int lineLength = 0;
+    enum http_stream_status status = readLine(stream, &lineLength, &firstLine);
+    if (status != LF_REACHED)
     {
-        *writeOffset += (int)recv(connfd, buffer, MAX_BUFFER_SIZE - *writeOffset, 0);
-    } while (!parseLine(buffer, *writeOffset, buffer, readOffset));
+        return -1;
+    }
+
+    assert(firstLine);
 
     char uri[PATH_MAX];
-    char *queryParams = NULL;
-    char *location = NULL;
+    char queryParams[lineLength];
+    char location[lineLength];
     char method[METHOD_MAX_SIZE];
     char version[METHOD_MAX_SIZE];
 
-    uint count = sscanf(buffer, "%15s %ms HTTP/%s", method, &location, version);
+    uint count = sscanf(stream->ptr, "%15s %s HTTP/%s", method, location, version);
     if (count != 3)
     {
         return -1;
     }
-    count = sscanf(location, "%[^?]?%ms", uri, &queryParams);
+    count = sscanf(location, "%[^?]?%s", uri, queryParams);
     if (count >= 2)
     {
         // query paramters detected
@@ -117,72 +91,58 @@ int scanFirstLine(int connfd, HTTPRequest *request, char *buffer, int *readOffse
         }
     }
 
-    request->method = arena_strdup(&request->arena, method);
-    request->uri = arena_strdup(&request->arena, uri);
-    request->version = arena_strdup(&request->arena, version);
+    int methodLen = strlen(method);
+    int uriLen = strlen(uri);
+    int versionlen = strlen(version);
+
+    request->method = cc_dynamic_pool_malloc(methodLen, request->pool);
+    memcpy(request->method, method, methodLen + 1);
+
+    request->uri = cc_dynamic_pool_malloc(strlen(uri), request->pool);
+    memcpy(request->uri, method, uriLen + 1);
+
+    request->version = cc_dynamic_pool_malloc(strlen(version), request->pool);
+    memcpy(request->version, version, versionlen + 1);
+
 
     return 0;
 }
 
-int scanHeaders(int connfd, HTTPRequest *request, char *buffer, int *readoffset, int *writeoffset, int *status)
+int scanHeaders(HTTPStream *stream, HTTPRequest *request)
 {
-    while (true)
+    int lineLength = 0;
+    char *line = NULL;
+    enum http_stream_status streamStatus;
+    while ((streamStatus = readLine(stream, &lineLength, &line)) != EMPTY_LINE)
     {
-        // keep recv until line is constructed
-        int tempReadOffset = *readoffset;
-        while (tempReadOffset < *writeoffset && !parseLine(buffer + *readoffset, *writeoffset, buffer, &tempReadOffset))
+        if (streamStatus != LF_REACHED)
         {
-            // if the write offset into the buffer is at the maximum, move all unread
-            // data to the start of the buffer;
-            if (*writeoffset >= MAX_BUFFER_SIZE)
-            {
-                int n_chars_left = *writeoffset - *readoffset;
-                memmove(buffer, buffer + *readoffset, n_chars_left);
-                // zero the right
-                memset(buffer + n_chars_left, 0, MAX_BUFFER_SIZE - n_chars_left);
-                *writeoffset = n_chars_left;
-                tempReadOffset = 0;
-                *readoffset = 0;
-            }
-            int nWritten = 0;
-            while ((nWritten = (int)recv(connfd, buffer, MAX_BUFFER_SIZE - *writeoffset, 0)) == -1)
-            {
-                if (errno != EINTR)
-                {
-                    // some other exception;
-                    *status = HTTP_SERVER_ERROR;
-                    return -1;
-                }
-            }
-            writeoffset += nWritten;
+            // an error occurred
+            return -1;
         }
-        int nBytesLine = tempReadOffset - 2 - *readoffset; // minus length of CRLF
-        if (nBytesLine <= 0)
-        {
-            // if the line has 0 bytes we have finished reading the header section
-            *readoffset = tempReadOffset;
-            break;
-        }
-
+        assert(lineLength > 0);
         // parse current line to a header key value pair
         // allocate a new key val pair
-        char key[nBytesLine];
-        char value[nBytesLine];
+        char key[lineLength];
+        char value[lineLength];
 
-        sscanf(buffer + *readoffset, "%[^:]: %s", key, value);
+        sscanf(line, "%[^:]: %s", key, value);
 
         setHeader(request, key, value);
-
-        // update the readoffset to end of current line
-        *readoffset = tempReadOffset;
     }
     return 0;
 }
 
-int scanBody(int connfd, HTTPRequest *request, int *status, char *buffer, int readoffset, int writeoffset)
+int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
 {
-    char *hasContLength = shget(request->headers, CONTENT_LENGTH_HEADER_NAME);
-    char *hasTransferCoding = shget(request->headers, TRANSFER_CODING_HEADER_NAME);
+    char *contentLengthS;
+    enum cc_stat stat = cc_hashtable_get(request->headers, CONTENT_LENGTH_HEADER_NAME, (void **)&contentLengthS);
+    bool hasContLength = stat == CC_OK;
+
+    char *transferCodingS;
+    stat = cc_hashtable_get(request->headers, TRANSFER_CODING_HEADER_NAME, (void **)&transferCodingS);
+    bool hasTransferCoding = stat == CC_OK;
+
     if (!strcmp(HTTP_METHOD_GET, request->method) && !hasContLength)
     {
         // ignore message body if a get request
@@ -194,75 +154,52 @@ int scanBody(int connfd, HTTPRequest *request, int *status, char *buffer, int re
         return -1;
         // read message body into request buffer
     }
-    assert(hasContLength);
-    // convert content length str to int;
-    request->contentLength = atoi(hasContLength);
+    request->contentLength = atoi(contentLengthS);
     // read body of message using content length
-    request->body = arena_alloc(&request->arena, request->contentLength);
 
-    if (writeoffset > readoffset)
+    enum http_stream_status strStatus = consumeBody(stream, &request->body, request->contentLength);
+
+    if (strStatus != RECV_SUCCESS)
     {
-    // read the rest of the into readoffset
-        memcpy(request->body, buffer + readoffset, writeoffset - readoffset);
+        return -1;
     }
-    int nrecv = 0;
-
-    int nTotalWritten = writeoffset - readoffset;
-    nTotalWritten = nTotalWritten > 0 ? nTotalWritten : 0;
-
-    int contentLength = request->contentLength;
-
-    while (nTotalWritten < contentLength &&
-           ((nrecv = (int)recv(connfd, request->body + nTotalWritten, contentLength - nTotalWritten, MSG_NOSIGNAL)) == -1))
-    {
-        // if the error code is simply the handling of a signal, then just
-        // continue
-        bool isEint = errno == EINTR;
-        if (nrecv == -1 && !isEint)
-        {
-            *status = HTTP_SERVER_ERROR;
-            return -1;
-        }
-        if (!isEint)
-        {
-            // if no error code is present, continue receiving data
-            nTotalWritten += nrecv;
-        }
-    }
-
     return 0;
 }
 
 int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
 {
-    char buffer[MAX_BUFFER_SIZE];
-    int readoffset = 0;
-    int writeoffset = 0;
+    HTTPStream stream;
+    initHTTPStream(&stream, connfd, request->pool);
+
     // parse the first line
-    int result = scanFirstLine(connfd, request, buffer, &readoffset, &writeoffset);
+    int result = scanFirstLine(&stream, request);
     if (result)
     {
+        *status = HTTP_BAD_REQUEST;
         printf("Error scanning first line!");
         goto error;
     }
 
-    result = scanHeaders(connfd, request, buffer, &readoffset, &writeoffset, status);
+    result = scanHeaders(&stream, request);
     if (result)
     {
+        *status = HTTP_BAD_REQUEST;
         goto error;
     }
     // the Host header is required
-    char *hasHost = shget(request->headers, HOST_HEADER_NAME);
+    bool hasHost = cc_hashtable_contains_key(request->headers, HOST_HEADER_NAME);
     if (!hasHost)
     {
         *status = HTTP_BAD_REQUEST;
         printf("Host header missing!");
         goto error;
     }
-    scanBody(connfd, request, status, buffer, readoffset, writeoffset);
+    scanBody(&stream, request, status);
+    goto success;
 success:
-    char *connect = shget(request->headers, CONNECTION_HEADER_NAME);
-    *keepAlive = ((connect && !strcmp(connect, "keep-alive")) != 0);
+    char *connect;
+    enum cc_stat stat_conn = cc_hashtable_get(request->headers, CONNECTION_HEADER_NAME, (void **)&connect);
+    *keepAlive = ((stat_conn == CC_OK && !strcmp(connect, "keep-alive")) != 0);
     *status = HTTP_OK;
     return 0;
 error:
@@ -271,50 +208,48 @@ error:
 
 int sendResponse(HTTPResponse *response, int connfd)
 {
-    char *outBuffer = NULL;
+    GrowingBuffer outBuffer;
+    initGrowingBuffer(&outBuffer, response->pool, INIT_BUFFER_SIZE);
 
     char firstline[MAX_BUFFER_SIZE];
+    int totalSize = 0;
 
+    char *phrase;
+    enum cc_stat stat_phrase = cc_hashtable_get(code_to_phrase, &response->statusCode, (void **)&phrase);
+    assert(stat_phrase == CC_OK);
 
-    sprintf(firstline,
-            "HTTP/%s %d %s\r\n",
-            response->request->version,
-            response->statusCode,
-            hmget(code_to_phrase, response->statusCode));
+    sprintf(firstline, "HTTP/%s %d %s\r\n", response->request->version, response->statusCode, phrase);
 
-    int firstLineLength = strlen(firstline);
-    char *ptrHeaders = arraddnptr(outBuffer, firstLineLength);
-    memcpy(outBuffer, firstline, firstLineLength);
-    // allocate buffer for content lenght
-    // make sure content-length is present
+    int firstLineLength = (int)strlen(firstline);
+    appendGrowingBuffer(&outBuffer, firstline, firstLineLength);
 
     encodeHeaders(response->headers, &outBuffer);
 
     if (response->body && response->contentLength > 0)
     {
-        char *bodyPtr = arraddnptr(outBuffer, response->contentLength);
-        memcpy(bodyPtr, response->body, response->contentLength);
+      appendGrowingBuffer(&outBuffer, response->body, response->contentLength);
     }
-    int totalLen = arrlen(outBuffer);
-    send(connfd, outBuffer, totalLen, MSG_NOSIGNAL);
-
-    arrfree(outBuffer);
+    send(connfd, outBuffer.ptr, outBuffer.size, MSG_NOSIGNAL);
     return 0;
 }
 
-int encodeHeaders(Header *headers, char **buffer)
+int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
 {
-    char currentLine[(MAX_BUFFER_SIZE * 2) + 20]; //
+    int numHeaders = (int)cc_hashtable_size(headers);
+    struct cc_hashtable_iter iter;
+    cc_hashtable_iter_init(&iter, headers);
 
-    for (int i = 0; i < shlen(headers); i++)
+    enum cc_stat stat;
+    TableEntry *currentEntry;
+    while ((stat = cc_hashtable_iter_next(&iter, &currentEntry)) != CC_ITER_END)
     {
-        sprintf(currentLine, "%s: %s\r\n", headers[i].key, headers[i].value);
-        int lineLength = strlen(currentLine);
-        char *dst = arraddnptr(*buffer, lineLength);
-        memcpy(dst, currentLine, lineLength);
+        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key) + strlen(currentEntry->value));
+        char currentLine[maxLineLength]; //
+        sprintf(currentLine, "%s: %s\r\n", (char *)currentEntry->key, (char *)currentEntry->value);
+        int lineLength = (int)strlen(currentLine);
+        appendGrowingBuffer(buffer, currentLine, lineLength);
     }
-    char *dst = arraddnptr(*buffer, 2);
-    memcpy(dst, "\r\n", 2); // 3 to incldue \0 at the end
+    appendGrowingBuffer(buffer, (char *)HTTP_LINE_END_TOK, HTTP_LINE_END_TOK_SIZE);
 
     return 0;
 }
