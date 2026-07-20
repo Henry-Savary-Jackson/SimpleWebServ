@@ -1,5 +1,6 @@
 #include "cc_array.h"
 #include "cc_common.h"
+#include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
@@ -95,8 +96,7 @@ int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
     int uriLen = strlen(uri) + 1;
     int versionlen = strlen(version)+1;
 
-    request->method = cc_dynamic_pool_malloc(methodLen, request->pool);
-    memcpy(request->method, method, methodLen );
+    request->method = HTTP_METHOD(method);
 
     request->uri = cc_dynamic_pool_malloc(uriLen, request->pool);
     memcpy(request->uri, uri, uriLen );
@@ -135,26 +135,24 @@ int scanHeaders(HTTPStream *stream, HTTPRequest *request)
 
 int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
 {
-    char *contentLengthS;
-    enum cc_stat stat = cc_hashtable_get(request->headers, CONTENT_LENGTH_HEADER_NAME, (void **)&contentLengthS);
-    bool hasContLength = stat == CC_OK;
+    char * contentLengthS = getHeader(request->headers, CONTENT_LENGTH_HEADER_NAME);
 
-    char *transferCodingS;
-    stat = cc_hashtable_get(request->headers, TRANSFER_CODING_HEADER_NAME, (void **)&transferCodingS);
-    bool hasTransferCoding = stat == CC_OK;
+    CC_Deque* transferCodingValues = getHeaderValues(request->headers, TRANSFER_CODING_HEADER_NAME);
 
-    if (!strcmp(HTTP_METHOD_GET, request->method) && !hasContLength)
+    if (!strcmp(HTTP_METHOD_GET, HTTP_METHOD_STRING(request->method)) && !contentLengthS)
     {
         // ignore message body if a get request
         return 0;
     }
-    if (!hasContLength)
+    if (!contentLengthS)
     {
         *status = HTTP_CONTENT_LENGTH_REQUIRED;
         return -1;
         // read message body into request buffer
     }
-    request->contentLength = atoi(contentLengthS);
+
+    char *contLengthSTemp; //temp
+    request->contentLength = (int)strtol(contentLengthS, &contLengthSTemp, 10);
     // read body of message using content length
 
     enum http_stream_status strStatus = consumeBody(stream, &request->body, request->contentLength);
@@ -180,6 +178,8 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         goto error;
     }
 
+    stringToPath(&request->uriPath, request->uri, request->pool);
+
     result = scanHeaders(&stream, request);
     if (result)
     {
@@ -188,7 +188,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
     }
 
    // the Host header is required
-    bool hasHost = cc_hashtable_contains_key(request->headers, HOST_HEADER_NAME);
+    char* hasHost = getHeader(request->headers, HOST_HEADER_NAME);
     if (!hasHost)
     {
         *status = HTTP_BAD_REQUEST;
@@ -198,9 +198,8 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
     scanBody(&stream, request, status);
     goto success;
 success:
-    char *connect;
-    enum cc_stat stat_conn = cc_hashtable_get(request->headers, CONNECTION_HEADER_NAME, (void **)&connect);
-    *keepAlive = ((stat_conn == CC_OK && !strcmp(connect, "keep-alive")) != 0);
+    char *connect = getHeader(request->headers, CONNECTION_HEADER_NAME);
+    *keepAlive = ( connect && !strcmp(connect, "keep-alive"));
     *status = HTTP_OK;
     return 0;
 error:
@@ -224,6 +223,12 @@ int sendResponse(HTTPResponse *response, int connfd)
     int firstLineLength = (int)strlen(firstline);
     appendGrowingBuffer(&outBuffer, firstline, firstLineLength);
 
+
+    char contentLengthS[METHOD_MAX_SIZE];
+    sprintf(contentLengthS, "%d", response->contentLength);
+    setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
+    setHeader(response, CONTENT_TYPE_HEADER_NAME, TEXT_HTML_VALUE);
+
     encodeHeaders(response->headers, &outBuffer);
 
     if (response->body && response->contentLength > 0)
@@ -244,9 +249,13 @@ int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
     TableEntry *currentEntry;
     while ((stat = cc_hashtable_iter_next(&iter, &currentEntry)) != CC_ITER_END)
     {
-        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key) + strlen(currentEntry->value));
+
+        CC_Deque* list = currentEntry->value;
+        char * value ;
+        cc_deque_get_first(list, (void**)&value);
+        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key)+ strlen(value));
         char currentLine[maxLineLength]; //
-        sprintf(currentLine, "%s: %s\r\n", (char *)currentEntry->key, (char *)currentEntry->value);
+        sprintf(currentLine, "%s: %s\r\n", (char *)currentEntry->key,value);
         int lineLength = (int)strlen(currentLine);
         appendGrowingBuffer(buffer, currentLine, lineLength);
     }

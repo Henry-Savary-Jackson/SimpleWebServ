@@ -19,6 +19,8 @@
  */
 
 #include "cc_list.h"
+#include "memory/cc_dynamic_pool.h"
+#include <string.h>
 
 
 struct cc_list_s {
@@ -29,6 +31,7 @@ struct cc_list_s {
     void  *(*mem_alloc)  (size_t size);
     void  *(*mem_calloc) (size_t blocks, size_t size);
     void   (*mem_free)   (void *block);
+    CC_DynamicPool* pool;
 };
 
 
@@ -55,6 +58,7 @@ void cc_list_conf_init(CC_ListConf *conf)
     conf->mem_alloc  = malloc;
     conf->mem_calloc = calloc;
     conf->mem_free   = free;
+    conf->pool       = NULL;
 }
 
 /**
@@ -96,6 +100,7 @@ enum cc_stat cc_list_new_conf(CC_ListConf const * const conf, CC_List **out)
     list->mem_alloc  = conf->mem_alloc;
     list->mem_calloc = conf->mem_calloc;
     list->mem_free   = conf->mem_free;
+    list->pool       = conf->pool;
 
     *out = list;
     return CC_OK;
@@ -161,6 +166,12 @@ enum cc_stat cc_list_add_first(CC_List *list, void *element)
     if (node == NULL)
         return CC_ERR_ALLOC;
 
+    if (list->pool){
+        void* newPtr = cc_dynamic_pool_malloc(strlen(element)+1,list->pool);
+        strcpy(newPtr, element);
+        element = newPtr;
+    }
+
     node->data = element;
 
     if (list->size == 0) {
@@ -191,6 +202,12 @@ enum cc_stat cc_list_add_last(CC_List *list, void *element)
 
     if (node == NULL)
         return CC_ERR_ALLOC;
+
+    if (list->pool){
+        void* newPtr = cc_dynamic_pool_malloc(strlen(element)+1,list->pool);
+        strcpy(newPtr, element);
+        element = newPtr;
+    }
 
     node->data = element;
 
@@ -233,6 +250,12 @@ enum cc_stat cc_list_add_at(CC_List *list, void *element, size_t index)
 
     if (!new)
         return CC_ERR_ALLOC;
+
+    if (list->pool){
+        void* newPtr = cc_dynamic_pool_malloc(strlen(element)+1,list->pool);
+        strcpy(newPtr, element);
+        element = newPtr;
+    }
 
     new->data = element;
     link_behind(base, new);

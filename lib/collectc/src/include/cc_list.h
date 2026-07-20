@@ -21,6 +21,7 @@
 #ifndef COLLECTIONS_C_CC_LIST_H
 #define COLLECTIONS_C_CC_LIST_H
 
+#include "memory/cc_dynamic_pool.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -91,6 +92,7 @@ typedef struct cc_list_zip_iter_s {
  * values.
  */
 typedef struct cc_list_conf_s {
+    CC_DynamicPool* pool;
     void  *(*mem_alloc)  (size_t size);
     void  *(*mem_calloc) (size_t blocks, size_t size);
     void   (*mem_free)   (void *block);

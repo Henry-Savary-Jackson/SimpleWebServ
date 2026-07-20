@@ -1,5 +1,9 @@
 #include "cc_array.h"
+#include "cc_common.h"
+#include "cc_deque.h"
+#include "memory/cc_dynamic_pool.h"
 #include "utils.h"
+#include <assert.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -13,7 +17,8 @@ void *task_handler(void *arg)
     while (pool->running)
     {
         pthread_mutex_lock(&pool->queueMutex);
-        while (pool->running && empty(&pool->taskQueue))
+
+        while (pool->running && !cc_deque_size(pool->taskQueue))
         {
             pthread_cond_wait(&pool->avaialableSignal, &pool->queueMutex);
         }
@@ -24,7 +29,9 @@ void *task_handler(void *arg)
             return NULL;
         }
 
-        Task *t = (Task *)pop(&pool->taskQueue);
+        Task *t;
+        enum cc_stat result = cc_deque_remove_first(pool->taskQueue,(void**)&t);
+        assert(result == CC_OK);
 
         pthread_mutex_unlock(&pool->queueMutex);
         t->callback(t->args);
@@ -35,14 +42,25 @@ void *task_handler(void *arg)
     return NULL;
 }
 
-void initThreadPool(ThreadPool *pool, int maxWorkers)
+void initThreadPool(ThreadPool *pool, int maxWorkers, CC_DynamicPool* arena)
 {
     pool->maxWorkers = maxWorkers;
     pool->running = false;
+    pool->arena = arena;
     pthread_mutex_init(&pool->queueMutex, NULL);
     pthread_cond_init(&pool->avaialableSignal, NULL);
-    cc_array_new(&pool->workers);
-    initQueue(&pool->taskQueue, sizeof(Task));
+
+    CC_ArrayConf confArr;
+
+    cc_array_conf_init(&confArr);
+    confArr.pool = arena;
+    cc_array_new_conf(&confArr,&pool->workers);
+
+    CC_DequeConf conf;
+    cc_deque_conf_init(&conf);
+    conf.pool = arena;
+    cc_deque_new_conf( &conf, &pool->taskQueue);
+
 }
 void submitTask(ThreadPool *pool, void function(void *), void *args)
 {
@@ -50,7 +68,7 @@ void submitTask(ThreadPool *pool, void function(void *), void *args)
     Task *task = malloc(sizeof(Task));
     task->args = args;
     task->callback = function;
-    push(&pool->taskQueue, task);
+    cc_deque_add_last(pool->taskQueue, task);
     pthread_cond_signal(&pool->avaialableSignal);
     pthread_mutex_unlock(&pool->queueMutex);
 }
@@ -75,9 +93,6 @@ void shutDownThreadPool(ThreadPool *pool)
 void freeThreadPool(ThreadPool *pool)
 {
     shutDownThreadPool(pool);
-    pthread_mutex_lock(&pool->queueMutex);
-    freeQueue(&pool->taskQueue);
-    pthread_mutex_unlock(&pool->queueMutex);
 }
 
 void startThreadPool(ThreadPool *pool)
@@ -87,7 +102,7 @@ void startThreadPool(ThreadPool *pool)
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_t *worker = malloc(sizeof(pthread_t));
+        pthread_t *worker = cc_dynamic_pool_malloc(sizeof(pthread_t), pool->arena);
         pthread_create(worker, NULL, task_handler, pool);
         cc_array_add(pool->workers, worker);
     }

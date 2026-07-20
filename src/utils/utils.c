@@ -3,6 +3,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <utils.h>
 
 void initGrowingBuffer(GrowingBuffer *buffer, CC_DynamicPool *pool, int capacity)
@@ -12,7 +13,7 @@ void initGrowingBuffer(GrowingBuffer *buffer, CC_DynamicPool *pool, int capacity
     buffer->size = 0;
     buffer->ptr = cc_dynamic_pool_malloc(capacity, pool);
 }
-void appendGrowingBuffer(GrowingBuffer *buffer, char *src, ssize_t size)
+void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size)
 {
     int newSize = (int)size + buffer->size;
     if (buffer->capacity <= newSize)
@@ -32,75 +33,44 @@ void appendGrowingBuffer(GrowingBuffer *buffer, char *src, ssize_t size)
 
 void initString(String *s)
 {
-    bzero(s, sizeof(String));
+    memset(s,0, sizeof(String));
 }
 
 void freeString(String *s)
 {
-    if (s->buf)
+    if (s->buf) {
         free(s->buf);
+}
 }
 
 void copyString(String *dst, char *src)
 {
     freeString(dst);
-    dst->length = strlen(src);
+    dst->length = (int)strlen(src);
     dst->buf = malloc(dst->length);
     strcpy(dst->buf, src);
 }
 
+void copyStringToPool(char ** dst, char* src, CC_DynamicPool* pool){
+    *dst= cc_dynamic_pool_malloc(strlen(src)+1, pool);
+    strcpy(*dst, src);
+}
 
-void initQueue(Queue *queue, size_t size)
-{
-    queue->size = 0;
-    queue->tail = NULL;
-    queue->head = NULL;
-    queue->typeSize = size;
-}
-void freeQueue(Queue *queue)
-{
-    Node *current = queue->head;
-    for (int i = 0; i < queue->size; i++)
-    {
-        free(current->data);
-        Node *next = current->next;
-        free(current);
-        current = next;
+
+
+int arrLineSearch(char** arr, int size, char* key){
+    int i =0 ;
+    while(i < size){
+        if (!strcmp(key, arr[i])) break;
+        i++;
     }
+    return i;
 }
-bool empty(Queue *queue)
+inline char separator()
 {
-    return queue->size == 0;
-}
-void push(Queue *queue, void *data)
-{
-    Node *node = malloc(sizeof(Node));
-    node->data = data;
-    node->next = NULL;
-    if (queue->tail)
-    {
-        queue->tail->next = node;
-        queue->tail = node;
-    }
-    else
-    {
-        queue->head = node;
-        queue->tail = node;
-    }
-    queue->size++;
-}
-void *pop(Queue *queue)
-{
-    Node *head = queue->head;
-    void *data = head->data;
-    queue->head = head->next ? head->next : queue->tail;
-    free(head);
-    queue->size--;
-    if (queue->size <= 0)
-    {
-        queue->head = NULL;
-        queue->size = 0;
-        queue->tail = NULL;
-    }
-    return data;
+#ifdef _WIN32
+    return '\\';
+#else
+    return '/';
+#endif
 }

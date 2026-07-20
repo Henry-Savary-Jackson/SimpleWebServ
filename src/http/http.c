@@ -1,4 +1,4 @@
-#include "cc_common.h"
+#include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "memory/cc_dynamic_pool.h"
 #include <asm-generic/errno-base.h>
@@ -39,6 +39,15 @@ const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 CC_HashTable *code_to_phrase;
 const char *HTTP_LINE_END_TOK = "\r\n";
 const int HTTP_LINE_END_TOK_SIZE = strlen("\r\n");
+
+const char *http_method_arr[HTTP_NUM_SUPPORTED_METHODS] =
+    {HTTP_METHOD_GET, HTTP_METHOD_POST, HTTP_METHOD_PUT, HTTP_METHOD_DELETE, HTTP_METHOD_HEAD, HTTP_METHOD_OPTIONS};
+const char *http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS] = {GZIP_HEADER_VALUE,
+                                                               ZLIB_HEADER_VALUE,
+                                                               IDENTITY_HEADER_VALUE};
+const char *http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE] = {MULTIPART_FORMDATA_VALUE,
+                                                                      TEXT_HTML_VALUE,
+                                                                      TEXT_PLAIN_VALUE};
 
 #define HTTP_REQUEST_INIT 4096
 
@@ -163,25 +172,22 @@ enum http_stream_status receiveData(HTTPStream *stream)
 }
 
 
-int initHTTPRequest(HTTPRequest *request)
+int initHTTPRequest(HTTPRequest *request, CC_DynamicPool *pool)
 {
-    request->method = NULL;
+    request->method = GET;
     request->uri = NULL;
     request->version = NULL;
     request->contentLength = 0;
     request->body = NULL;
-
-    CC_DynamicPoolConf poolConf;
-    cc_dynamic_pool_conf_init(&poolConf);
-    poolConf.exp_factor = 2;
-    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &poolConf, &request->pool);
+    request->pool = pool;
+    initPath(&request->uriPath, pool);
 
     CC_HashTableConf htConf;
     cc_hashtable_conf_init(&htConf);
     htConf.key_length = KEY_LENGTH_VARIABLE;
     htConf.hash = STRING_HASH;
     htConf.key_compare = CC_CMP_STRING;
-    htConf.pool = request->pool;
+    htConf.keyPool = pool;
 
     enum cc_stat result = cc_hashtable_new_conf(&htConf, &request->headers);
     if (result != CC_OK)
@@ -200,33 +206,30 @@ int initHTTPRequest(HTTPRequest *request)
 
 void freeHTTPRequest(HTTPRequest *request)
 {
-    cc_hashtable_destroy(request->headers);
-    cc_hashtable_destroy(request->urlParams);
-    cc_dynamic_pool_destroy(request->pool);
+    // cc_dynamic_pool_destroy(request->pool);
 }
 
-int initHTTPResponse(HTTPResponse *response)
+int initHTTPResponse(HTTPResponse *response, CC_DynamicPool *pool)
 {
     response->contentLength = 0;
     response->statusCode = 0;
     response->body = NULL;
     response->headers = NULL;
     response->request = NULL;
-    CC_DynamicPoolConf poolConf;
-    cc_dynamic_pool_conf_init(&poolConf);
-    poolConf.exp_factor = 2;
-    cc_dynamic_pool_new_conf(HTTP_REQUEST_INIT, &poolConf, &response->pool);
+    response->pool = pool;
 
     CC_HashTableConf htConf;
     cc_hashtable_conf_init(&htConf);
     htConf.key_length = KEY_LENGTH_VARIABLE;
     htConf.hash = STRING_HASH;
     htConf.key_compare = CC_CMP_STRING;
-    htConf.pool = response->pool;
+    htConf.keyPool = pool;
 
     enum cc_stat result = cc_hashtable_new_conf(&htConf, &response->headers);
     if (result != CC_OK)
+    {
         return -1;
+    }
     return 0;
 }
 
@@ -240,15 +243,15 @@ void setResponseBody(HTTPResponse *response, char *buffer, int contentLength)
     }
     response->body = cc_dynamic_pool_malloc(response->contentLength, response->pool);
     memcpy(response->body, buffer, contentLength);
-    char contentLengthS[32];
-    sprintf(contentLengthS, "%d", contentLength);
-    setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
+
+    // char contentLengthS[32];
+    // sprintf(contentLengthS, "%d", contentLength);
+    // setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
 }
 
 void freeHTTPResponse(HTTPResponse *response)
 {
-    cc_hashtable_destroy(response->headers);
-    cc_dynamic_pool_destroy(response->pool);
+    // cc_dynamic_pool_destroy(response->pool);
 }
 void setRequest(HTTPResponse *resp, HTTPRequest *resq)
 {
@@ -273,8 +276,45 @@ void init_code_to_phrase()
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
 
-
-void allocDictToArena(CC_HashTable *dict, char *key, char *value)
+char *getHeader(CC_HashTable *dict, char *key)
 {
-    cc_hashtable_add(dict, key, value);
+    //
+    char *value;
+    CC_Deque *list;
+    enum cc_stat stat = cc_hashtable_get(dict, key, (void **)&list);
+    if (stat == CC_ERR_KEY_NOT_FOUND)
+    {
+        return NULL;
+    }
+    char *out;
+    cc_deque_get_first(list, (void **)&out);
+    return out;
+}
+
+CC_Deque *getHeaderValues(CC_HashTable *dict, char *key)
+{
+    CC_Deque *deque = NULL;
+    enum cc_stat stat = cc_hashtable_get(dict, key, (void **)&deque);
+    if (stat == CC_ERR_KEY_NOT_FOUND)
+    {
+        return NULL;
+    }
+    return deque;
+}
+
+void setHeaderPool(CC_HashTable *dict, CC_DynamicPool *pool, char *key, char *value)
+{
+    CC_Deque *valueQueue = getHeaderValues(dict, key);
+    if (valueQueue == NULL)
+    {
+        // create new lisot
+        CC_DequeConf conf;
+        cc_deque_conf_init(&conf);
+        conf.pool = pool;
+        cc_deque_new_conf(&conf, &valueQueue);
+        cc_hashtable_add(dict, key, valueQueue);
+    }
+    char *newValue = cc_dynamic_pool_malloc(strlen(value) + 1, pool);
+    strcpy(newValue, value);
+    cc_deque_add_last(valueQueue, newValue);
 }

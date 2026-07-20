@@ -21,6 +21,7 @@
 #ifndef COLLECTIONS_C_ARRAY_H
 #define COLLECTIONS_C_ARRAY_H
 
+#include "memory/cc_dynamic_pool.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,6 +55,8 @@ typedef struct cc_array_conf_s {
     void *(*mem_alloc)  (size_t size);
     void *(*mem_calloc) (size_t blocks, size_t size);
     void  (*mem_free)   (void *block);
+
+    CC_DynamicPool* pool;
 } CC_ArrayConf;
 
 /**

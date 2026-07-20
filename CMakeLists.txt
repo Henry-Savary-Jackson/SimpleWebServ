@@ -16,9 +16,14 @@ add_executable(output
         src/main.c
         src/utils/utils.c
         src/utils/threadpool.c
+        src/utils/paths.c
         src/http/http.c
         src/parser/parser.c
+        src/parser/chunked.c
+        src/parser/encoding.c
         src/server/server.c
+        src/server/router.c
+        src/server/fshandler.c
 )
 
 target_include_directories(output PUBLIC include)

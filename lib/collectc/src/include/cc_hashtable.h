@@ -128,7 +128,8 @@ extern "C"
      * A pointer to a CC_DynamicPool object. If not NULL, cc_hashtable_add will allocate the key to said pool
         only if it is new to the hashtable. This saves space otheriwse wasted space with string pointers
      */
-        CC_DynamicPool* pool;
+        CC_DynamicPool* keyPool;
+        CC_DynamicPool* valuePool;
     } CC_HashTableConf;
 
 
@@ -160,6 +161,7 @@ extern "C"
     void cc_hashtable_iter_init(CC_HashTableIter *iter, CC_HashTable *table);
     enum cc_stat cc_hashtable_iter_next(CC_HashTableIter *iter, TableEntry **out);
     enum cc_stat cc_hashtable_iter_remove(CC_HashTableIter *iter, void **out);
+
 
 
 #define CC_HASHTABLE_FOREACH(hashtable, key_53d46d2a04458e7b, value_53d46d2a04458e7b, body)                            \
