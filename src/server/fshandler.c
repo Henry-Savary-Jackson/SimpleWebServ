@@ -1,6 +1,8 @@
 #include "cc_deque.h"
+#include "cc_pqueue.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
+#include "parser.h"
 #include "utils.h"
 #include <asm-generic/errno-base.h>
 #include <assert.h>
@@ -10,6 +12,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -40,7 +43,7 @@ void sanitizeURI(char *uri, char*output)
 }
 
 
-int prefixMatchPaths(Path* path1, Path* path2, CC_DynamicPool* pool)
+int prefixMatchPaths(Path* path1, Path* path2)
 {
     Path common;
     commonRoot(&common, path1, path2);
@@ -51,7 +54,7 @@ int prefixMatchPaths(Path* path1, Path* path2, CC_DynamicPool* pool)
 int prefixMatchFSHandler(HTTPRequest *request, void *handler)
 {
     FileSystemHandler *fsHandler = (FileSystemHandler *)handler;
-    return prefixMatchPaths(&fsHandler->pathPrefix, &request->uriPath, request->pool);
+    return prefixMatchPaths(&fsHandler->pathPrefix, &request->uriPath);
 }
 
 int handleDirectory(Path* fullPath, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler)
@@ -65,14 +68,41 @@ int handleNotFound(Path* fullPath, HTTPRequest *request, HTTPResponse *response,
 {
     response->statusCode = HTTP_NOT_FOUND;
     const char * respStr = "Not Found!";
-    char * ptr = cc_dynamic_pool_malloc( strlen(respStr)+1, response->pool);
-    strcpy(ptr, respStr);
-    response->body = ptr ;
+    response->body = custom_strdup(respStr) ;
     response->contentLength = (int)strlen(respStr);
     return -1;
 }
 
-int tryFiles(Path* path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler)
+int chooseContentType(char * path, HTTPRequest* request, HTTPResponse * response, FileSystemHandler* handler, int connfd){
+    // check if mimetype desire matches
+    // check if
+    CC_Deque* acceptMimetypes = getHeaderValues(request->headers, ACCEPT_MIMETYPE_HEADER_NAME);
+    if (acceptMimetypes != NULL){
+        // there are specified content headers
+
+        char * mimetype = getMimeTypeForFile(path);
+        CC_PQueue* accept_mimetypes = decodeAcceptTypes(acceptMimetypes);
+        assert(accept_mimetypes);
+        char * chosenMimetype = NULL;
+
+        int result = decideContentType(accept_mimetypes, mimetype, &chosenMimetype);
+        if (result != 0 ){
+            // error
+            response->statusCode = HTTP_NOT_ACCEPTED;
+            response->contentType = "text/html";
+            sendResponse(response, connfd);
+            return -1;
+        }
+
+        setContentType(response, chosenMimetype);
+    }else {
+        response->contentType = "text/html";
+    }
+    return  0;
+}
+
+
+int tryFiles(Path* path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
 {
 
     FILE *openedFile = NULL;
@@ -118,17 +148,38 @@ int tryFiles(Path* path, HTTPRequest *request, HTTPResponse *response, FileSyste
         goto closeFile;
     }
 
+
+
+    // check if there are not
+    if (chooseContentType(pathStr, request, response, handler, connfd)){
+        return -1;
+    }
+
+    response->contentEncoding = IDENTITY;
+
+
     // read from the file
     // write contents to body
 
     GrowingBuffer buffer ;
-    initGrowingBuffer(&buffer, response->pool, FS_CHUNK_SIZE<<1);
+    initGrowingBuffer(&buffer,  FS_CHUNK_SIZE<<1);
     char chunk [FS_CHUNK_SIZE];
     size_t numRead = 0;
     while (!feof(openedFile) && ((numRead =  fread(chunk,sizeof(char), sizeof(chunk), openedFile)) != 0)){
         appendGrowingBuffer(&buffer, chunk, numRead );
     }
     setResponseBody(response, buffer.ptr, buffer.size);
+
+
+    GrowingBuffer responseBuffer;
+    initGrowingBuffer(&responseBuffer, HTTP_STREAM_INIT_BUFFER);
+    prepareHTTPResponseMetadata(response, &responseBuffer );
+
+    encodeHeaders(response->headers, &responseBuffer);
+
+    prepareResponseBody(response, &responseBuffer);
+
+    send(connfd, responseBuffer.ptr, responseBuffer.size, MSG_NOSIGNAL);
 
     // file is sucessfully found
 
@@ -137,7 +188,7 @@ int tryFiles(Path* path, HTTPRequest *request, HTTPResponse *response, FileSyste
         return 0;
 }
 
-int FSHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handler)
+int FSHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
 {
     FileSystemHandler *fsHandler = (FileSystemHandler *)handler;
 
@@ -148,7 +199,7 @@ int FSHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handle
     // add webroot to prefix the path
     concatenatePath(&fsHandler->webroot, &request->uriPath);
 
-    return tryFiles(&request->uriPath, request, response, fsHandler);
+    return tryFiles(&request->uriPath, request, response, fsHandler, connfd);
 }
 
 
@@ -161,10 +212,10 @@ RequestHandler getFSHandlerObj(FileSystemHandler *fsHandler)
     };
 }
 
-void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot, CC_DynamicPool* pool){
+void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot){
 
-    stringToPath(&fsHandler->pathPrefix, pathPrefix, pool);
-    stringToPath(&fsHandler->webroot, webroot, pool);
+    stringToPath(&fsHandler->pathPrefix, pathPrefix);
+    stringToPath(&fsHandler->webroot, webroot);
     fsHandler->acceptedEncodings  = NULL;
 }
 

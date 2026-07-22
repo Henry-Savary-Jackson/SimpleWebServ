@@ -18,11 +18,15 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#define ARENA_IMPLEMENTATION
+#include <arena.h>
 #define MAX_WORKERS 10
 #define PORT 8080
 #define IP_ADDR_SIZE 32
 
 Server *server;
+
+
 
 void sighandler_parent(int signal)
 {
@@ -93,7 +97,7 @@ int main(int argc, char *argv[])
     setServerAddress(server, addr, (int)port);
 
     FileSystemHandler handler;
-    initFileSystemHandler(&handler, "/test", "webroot",server->arena);
+    initFileSystemHandler(&handler, "/test", "webroot");
     addFileSystemHandlerServer(server, &handler);
     bindSocket(server);
 

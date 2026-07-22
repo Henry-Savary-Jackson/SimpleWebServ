@@ -11,11 +11,7 @@ int readBodyChunked(HTTPStream *stream, HTTPRequest *request)
 
     // start headers for trailer params
     CC_HashTableConf htConf;
-    cc_hashtable_conf_init(&htConf);
-    htConf.key_length = KEY_LENGTH_VARIABLE;
-    htConf.hash = STRING_HASH;
-    htConf.key_compare = CC_CMP_STRING;
-    htConf.keyPool = request->pool;
+    configureHTTPDict(&htConf);
 
     CC_HashTable *trailerParams;
     cc_hashtable_new_conf(&htConf, &trailerParams);

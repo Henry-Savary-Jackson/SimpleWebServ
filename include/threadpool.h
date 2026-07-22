@@ -7,6 +7,10 @@
 #include <bits/pthreadtypes.h>
 #include <stdatomic.h>
 
+#include <arena.h>
+#include <threads.h>
+
+
 typedef struct {
     int maxWorkers;
     CC_Array* workers;
@@ -23,7 +27,7 @@ typedef struct{
     void * args;
 } Task;
 
-void initThreadPool(ThreadPool* pool,int maxWorkers, CC_DynamicPool* arena);
+void initThreadPool(ThreadPool* pool,int maxWorkers);
 void startThreadPool(ThreadPool* pool);
 void submitTask(ThreadPool* pool, void function (void* ), void* args );
 void shutDownThreadPool(ThreadPool* pool);

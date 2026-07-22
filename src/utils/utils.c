@@ -1,4 +1,6 @@
+#include "arena.h"
 #include "memory/cc_dynamic_pool.h"
+#include "server.h"
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -6,12 +8,11 @@
 #include <sys/types.h>
 #include <utils.h>
 
-void initGrowingBuffer(GrowingBuffer *buffer, CC_DynamicPool *pool, int capacity)
+void initGrowingBuffer(GrowingBuffer *buffer, int capacity)
 {
     buffer->capacity = capacity;
-    buffer->pool = pool;
     buffer->size = 0;
-    buffer->ptr = cc_dynamic_pool_malloc(capacity, pool);
+    buffer->ptr = custom_alloc(capacity);
 }
 void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size)
 {
@@ -22,7 +23,8 @@ void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size)
         {
             buffer->capacity <<= 1;
         } while (buffer->capacity <= newSize);
-        char *new_ptr = cc_dynamic_pool_malloc(buffer->capacity, buffer->pool);
+
+        char *new_ptr = custom_alloc(buffer->capacity );
         memcpy(new_ptr, buffer->ptr, buffer->size);
         buffer->ptr = new_ptr;
     }

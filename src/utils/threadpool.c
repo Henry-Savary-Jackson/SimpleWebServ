@@ -2,6 +2,8 @@
 #include "cc_common.h"
 #include "cc_deque.h"
 #include "memory/cc_dynamic_pool.h"
+#include "parser.h"
+#include "server.h"
 #include "utils.h"
 #include <assert.h>
 #include <pthread.h>
@@ -9,10 +11,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <threadpool.h>
+#include <threads.h>
+
+
 
 void *task_handler(void *arg)
 
 {
+    loadMagicDB();
     ThreadPool *pool = (ThreadPool *)arg;
     while (pool->running)
     {
@@ -42,32 +48,38 @@ void *task_handler(void *arg)
     return NULL;
 }
 
-void initThreadPool(ThreadPool *pool, int maxWorkers, CC_DynamicPool* arena)
+void initThreadPool(ThreadPool *pool, int maxWorkers)
 {
     pool->maxWorkers = maxWorkers;
     pool->running = false;
-    pool->arena = arena;
     pthread_mutex_init(&pool->queueMutex, NULL);
     pthread_cond_init(&pool->avaialableSignal, NULL);
 
     CC_ArrayConf confArr;
 
     cc_array_conf_init(&confArr);
-    confArr.pool = arena;
+    confArr.mem_alloc = custom_alloc;
+    confArr.mem_calloc = custom_calloc;
+    confArr.mem_free = custom_free;
     cc_array_new_conf(&confArr,&pool->workers);
 
     CC_DequeConf conf;
     cc_deque_conf_init(&conf);
-    conf.pool = arena;
+    confArr.mem_alloc = custom_alloc;
+    confArr.mem_calloc = custom_calloc;
+    confArr.mem_free = custom_free;
     cc_deque_new_conf( &conf, &pool->taskQueue);
 
 }
 void submitTask(ThreadPool *pool, void function(void *), void *args)
 {
     pthread_mutex_lock(&pool->queueMutex);
-    Task *task = malloc(sizeof(Task));
+
+    Task *task = malloc(sizeof(Task)); // dont use arena as we dont finished task to pile up in memory
+    // this is a relatively small allocation
     task->args = args;
     task->callback = function;
+
     cc_deque_add_last(pool->taskQueue, task);
     pthread_cond_signal(&pool->avaialableSignal);
     pthread_mutex_unlock(&pool->queueMutex);
@@ -102,7 +114,7 @@ void startThreadPool(ThreadPool *pool)
     pthread_mutex_unlock(&pool->queueMutex);
     for (int i = 0; i < pool->maxWorkers; i++)
     {
-        pthread_t *worker = cc_dynamic_pool_malloc(sizeof(pthread_t), pool->arena);
+        pthread_t *worker = custom_alloc(sizeof(pthread_t));
         pthread_create(worker, NULL, task_handler, pool);
         cc_array_add(pool->workers, worker);
     }

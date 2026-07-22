@@ -21,6 +21,7 @@
 #ifndef COLLECTIONS_C_CC_PQUEUE_H
 #define COLLECTIONS_C_CC_PQUEUE_H
 
+#include "memory/cc_dynamic_pool.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -62,6 +63,7 @@ typedef struct cc_pqueue_conf_s {
     void *(*mem_alloc)  (size_t size);
     void *(*mem_calloc) (size_t blocks, size_t size);
     void  (*mem_free)   (void *block);
+    CC_DynamicPool* pool;
 } CC_PQueueConf;
 
 void          cc_pqueue_conf_init       (CC_PQueueConf *conf, int (*)(const void *, const void *));

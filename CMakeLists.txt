@@ -28,7 +28,7 @@ add_executable(output
 
 target_include_directories(output PUBLIC include)
 target_include_directories(output PUBLIC lib/collectc/src/include)
-target_link_libraries(output PUBLIC pthread collectc )
+target_link_libraries(output PUBLIC pthread collectc magic )
 # alternative cmake -DCMAKE_BUILD_TYPE=Debug <path and other arguments>
 # create compile commands for intelli sense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

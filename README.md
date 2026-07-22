@@ -10,7 +10,7 @@ A simple web server made (mostly, with the help of some libraries) from scratch 
     - [ ] MIME types
     - [ ] content-encoding
     - [ ] method 
-- [ ] Server static files from webroot
+- [x] Server static files from webroot
 - [ ] Upload and remove files from webroot
 - [ ] Authentication and authorization for uploading files to webroot
 - [ ] .ACME authentication for certificate renewal 

@@ -23,7 +23,6 @@ typedef struct
 {
     bool isRoot;
     CC_Deque* directories;
-    CC_DynamicPool* pool;
 } Path;
 
 typedef struct
@@ -31,10 +30,9 @@ typedef struct
     int capacity;
     int size;
     char *ptr;
-    CC_DynamicPool *pool;
 } GrowingBuffer;
 
-void initGrowingBuffer(GrowingBuffer *buffer, CC_DynamicPool *pool, int capacity);
+void initGrowingBuffer(GrowingBuffer *buffer, int capacity);
 void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size);
 
 void initString(String *str);
@@ -69,8 +67,8 @@ inline char separator();
     #define PATH_SEP_STR "/"
 #endif
 
-void initPath(Path* path, CC_DynamicPool* pool);
-void stringToPath(Path* path,char * strPath, CC_DynamicPool* strPool);
+void initPath(Path* path);
+void stringToPath(Path* path,char * strPath);
 void commonRoot(Path* output,Path *path1, Path *path2);
 void concatenatePath(Path* prefix, Path* rest);
 void pathToStr(Path *path, char* outBuffer);

@@ -1,6 +1,8 @@
+#include "arena.h"
 #include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "memory/cc_dynamic_pool.h"
+#include "server.h"
 #include <asm-generic/errno-base.h>
 #include <assert.h>
 #include <errno.h>
@@ -21,6 +23,7 @@ const int HTTP_UNAUTHORIZED = 401;
 const int HTTP_FORBIDDEN = 403;
 const int HTTP_NOT_FOUND = 404;
 const int HTTP_METHOD_UNSUPPORTED = 405;
+const int HTTP_NOT_ACCEPTED = 406;
 const int HTTP_CONTENT_LENGTH_REQUIRED = 411;
 const int HTTP_SERVER_ERROR = 500;
 
@@ -33,6 +36,7 @@ const char *HTTP_UNAUTHORIZED_PHRASE = "Unauthorized";
 const char *HTTP_FORBIDDEN_PHRASE = "Forbidden";
 const char *HTTP_NOT_FOUND_PHRASE = "Not Found";
 const char *HTTP_METHOD_UNSUPPORTED_PHRASE = "Method Not Allowed";
+const char *HTTP_NOT_ACCEPTED_PHRASE= "Not Accepted";
 const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE = "Length Required";
 const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 
@@ -51,13 +55,12 @@ const char *http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE] = {MULTIPART_
 
 #define HTTP_REQUEST_INIT 4096
 
-void initHTTPStream(HTTPStream *stream, int connfd, CC_DynamicPool *pool)
+void initHTTPStream(HTTPStream *stream, int connfd)
 {
     stream->capacity = HTTP_STREAM_INIT_BUFFER;
     stream->connfd = connfd;
     stream->tokenIndex = 0;
-    stream->pool = pool;
-    stream->ptr = cc_dynamic_pool_malloc(stream->capacity, stream->pool);
+    stream->ptr = custom_alloc(stream->capacity);
     stream->writeoffset = 0;
     stream->consumedoffset = 0;
     stream->head = 0;
@@ -160,34 +163,39 @@ enum http_stream_status receiveData(HTTPStream *stream)
         // double cap
         stream->capacity <<= 1;
         // realloc
-        char *new_ptr = cc_dynamic_pool_malloc(stream->capacity, stream->pool);
+        char *new_ptr = custom_alloc(stream->capacity);
         // copy exisitng data to new pointer
         int nUnconsumed = stream->writeoffset - stream->consumedoffset;
         memcpy(new_ptr + stream->consumedoffset, stream->ptr + stream->consumedoffset, nUnconsumed);
         // free old
-        cc_dynamic_pool_free(stream->ptr, stream->pool);
+        custom_free(stream->ptr);
         stream->ptr = new_ptr;
     }
     return RECV_SUCCESS;
 }
 
+void configureHTTPDict(CC_HashTableConf* conf){
+    cc_hashtable_conf_init(conf);
+    conf->key_length = KEY_LENGTH_VARIABLE;
+    conf->hash = STRING_HASH;
+    conf->key_compare = CC_CMP_STRING;
+    conf->mem_alloc = custom_alloc;
+    conf->mem_calloc = custom_calloc;
+    conf->mem_free = custom_free;
+}
 
-int initHTTPRequest(HTTPRequest *request, CC_DynamicPool *pool)
+
+int initHTTPRequest(HTTPRequest *request)
 {
     request->method = GET;
     request->uri = NULL;
     request->version = NULL;
     request->contentLength = 0;
     request->body = NULL;
-    request->pool = pool;
-    initPath(&request->uriPath, pool);
+    initPath(&request->uriPath);
 
     CC_HashTableConf htConf;
-    cc_hashtable_conf_init(&htConf);
-    htConf.key_length = KEY_LENGTH_VARIABLE;
-    htConf.hash = STRING_HASH;
-    htConf.key_compare = CC_CMP_STRING;
-    htConf.keyPool = pool;
+    configureHTTPDict(&htConf);
 
     enum cc_stat result = cc_hashtable_new_conf(&htConf, &request->headers);
     if (result != CC_OK)
@@ -209,21 +217,16 @@ void freeHTTPRequest(HTTPRequest *request)
     // cc_dynamic_pool_destroy(request->pool);
 }
 
-int initHTTPResponse(HTTPResponse *response, CC_DynamicPool *pool)
+int initHTTPResponse(HTTPResponse *response)
 {
     response->contentLength = 0;
     response->statusCode = 0;
     response->body = NULL;
     response->headers = NULL;
     response->request = NULL;
-    response->pool = pool;
 
     CC_HashTableConf htConf;
-    cc_hashtable_conf_init(&htConf);
-    htConf.key_length = KEY_LENGTH_VARIABLE;
-    htConf.hash = STRING_HASH;
-    htConf.key_compare = CC_CMP_STRING;
-    htConf.keyPool = pool;
+    configureHTTPDict(&htConf);
 
     enum cc_stat result = cc_hashtable_new_conf(&htConf, &response->headers);
     if (result != CC_OK)
@@ -237,17 +240,15 @@ void setResponseBody(HTTPResponse *response, char *buffer, int contentLength)
 {
     response->contentLength = contentLength;
 
-    if (response->body)
-    {
-        cc_dynamic_pool_free(response->body, response->pool);
-    }
-    response->body = cc_dynamic_pool_malloc(response->contentLength, response->pool);
+
+    response->body = custom_alloc(response->contentLength);
     memcpy(response->body, buffer, contentLength);
 
     // char contentLengthS[32];
     // sprintf(contentLengthS, "%d", contentLength);
     // setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
 }
+
 
 void freeHTTPResponse(HTTPResponse *response)
 {
@@ -272,6 +273,7 @@ void init_code_to_phrase()
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_FORBIDDEN, (char *)HTTP_FORBIDDEN_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_FOUND, (char *)HTTP_NOT_FOUND_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_METHOD_UNSUPPORTED, (char *)HTTP_METHOD_UNSUPPORTED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_ACCEPTED, (char *)HTTP_NOT_ACCEPTED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_CONTENT_LENGTH_REQUIRED, (char *)HTTP_CONTENT_LENGTH_REQUIRED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
@@ -302,19 +304,19 @@ CC_Deque *getHeaderValues(CC_HashTable *dict, char *key)
     return deque;
 }
 
-void setHeaderPool(CC_HashTable *dict, CC_DynamicPool *pool, char *key, char *value)
+void setHeaderPool(CC_HashTable *dict,  char *key, char *value)
 {
     CC_Deque *valueQueue = getHeaderValues(dict, key);
     if (valueQueue == NULL)
     {
-        // create new lisot
         CC_DequeConf conf;
         cc_deque_conf_init(&conf);
-        conf.pool = pool;
+        conf.mem_alloc = custom_alloc;
+        conf.mem_calloc = custom_calloc;
+        conf.mem_free = custom_free;
         cc_deque_new_conf(&conf, &valueQueue);
+        key = custom_strdup(key);
         cc_hashtable_add(dict, key, valueQueue);
     }
-    char *newValue = cc_dynamic_pool_malloc(strlen(value) + 1, pool);
-    strcpy(newValue, value);
-    cc_deque_add_last(valueQueue, newValue);
+    cc_deque_add_last(valueQueue, custom_strdup(value));
 }

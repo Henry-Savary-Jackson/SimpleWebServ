@@ -2,23 +2,25 @@
 #include "cc_common.h"
 #include "cc_deque.h"
 #include "memory/cc_dynamic_pool.h"
+#include "server.h"
 #include "utils.h"
 #include <linux/limits.h>
 #include <string.h>
 
-void initPath(Path *path, CC_DynamicPool *pool)
+void initPath(Path *path)
 {
     path->isRoot = false;
-    path->pool = pool;
     CC_DequeConf conf;
     cc_deque_conf_init(&conf);
-    conf.pool = pool;
+    conf.mem_alloc = custom_alloc;
+    conf.mem_calloc = custom_calloc;
+    conf.mem_free = custom_free;
     cc_deque_new_conf(&conf, &path->directories);
 }
 
-void stringToPath(Path *path, char *strPath, CC_DynamicPool *strPool)
+void stringToPath(Path *path, char *strPath)
 {
-    initPath(path, strPool);
+    initPath(path);
     char currentDir[PATH_MAX];
     int strIndex = 0;
     int dirWriteIndex = 0;
@@ -35,9 +37,7 @@ void stringToPath(Path *path, char *strPath, CC_DynamicPool *strPool)
         if (c == PATH_SEP || c == 0) // end of string or a path separator, append current to queue
         {
             currentDir[dirWriteIndex] = 0;
-            char *newPtr;
-            copyStringToPool(&newPtr, currentDir, strPool);
-            cc_deque_add_last(path->directories, newPtr);
+            cc_deque_add_last(path->directories, custom_strdup(currentDir));
             dirWriteIndex = 0;
 
             if (strIndex + 1 >= strLen)
@@ -53,7 +53,7 @@ void stringToPath(Path *path, char *strPath, CC_DynamicPool *strPool)
 }
 void commonRoot(Path *output, Path *path1, Path *path2)
 {
-    initPath(output, path1->pool);
+    initPath(output);
     output->isRoot = path1->isRoot || path2->isRoot;
 
     CC_DequeZipIter zipIter;
@@ -120,9 +120,7 @@ void sanitizePath(Path* path){
 
 void addToPath(Path *path, char *dirname)
 {
-    char *ptr;
-    copyStringToPool(&ptr, dirname, path->pool);
-    cc_deque_add_last(path->directories, ptr);
+    cc_deque_add_last(path->directories, custom_strdup(dirname));
 }
 
 void popFromPath(Path *path)
@@ -135,7 +133,6 @@ void removePrefix(Path *path, Path *prefix)
 {
     Path newPrefix;
     newPrefix.isRoot = true;
-    newPrefix.pool = path->pool;
     cc_deque_copy_shallow(prefix->directories, &newPrefix.directories);
 
     CC_DequeZipIter zipIter;

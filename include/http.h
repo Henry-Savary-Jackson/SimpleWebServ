@@ -10,6 +10,7 @@
 #define TRANSFER_CODING_HEADER_NAME "Transfer-Encoding"
 #define TRANSFER_ENCODING_CLIENT_HEADER_NAME "TE"
 #define CONTENT_ENCODING_HEADER_NAME "Content-Encoding"
+#define ACCEPT_MIMETYPE_HEADER_NAME "Accept"
 #define ACCEPT_ENCODING_HEADER_NAME "Accept-Encoding"
 #define CONTENT_TYPE_HEADER_NAME "Content-Type"
 #define HOST_HEADER_NAME "Host"
@@ -60,6 +61,7 @@ extern const int HTTP_UNAUTHORIZED;
 extern const int HTTP_FORBIDDEN;
 extern const int HTTP_NOT_FOUND;
 extern const int HTTP_METHOD_UNSUPPORTED;
+extern const int HTTP_NOT_ACCEPTED;
 extern const int HTTP_CONTENT_LENGTH_REQUIRED;
 extern const int HTTP_SERVER_ERROR;
 
@@ -75,6 +77,7 @@ extern const char *HTTP_UNAUTHORIZED_PHRASE;
 extern const char *HTTP_FORBIDDEN_PHRASE;
 extern const char *HTTP_NOT_FOUND_PHRASE;
 extern const char *HTTP_METHOD_UNSUPPORTED_PHRASE;
+extern const char *HTTP_NOT_ACCEPTED_PHRASE;
 extern const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE;
 extern const char *HTTP_SERVER_ERROR_PHRASE;
 
@@ -112,10 +115,9 @@ typedef struct
     int writeoffset;
     int tokenIndex; // how far into the end token has been reached, incase stream terminates at CR char
     char *ptr;
-    CC_DynamicPool *pool;
 } HTTPStream;
 
-void initHTTPStream(HTTPStream *stream, int connfd, CC_DynamicPool *pool);
+void initHTTPStream(HTTPStream *stream, int connfd);
 enum http_stream_status consumeUntilLineFeed(HTTPStream *stream);
 enum http_stream_status readLine(HTTPStream *stream, int *lineLength, char **output);
 enum http_stream_status consumeBody(HTTPStream *stream, char **out, int contentLength);
@@ -139,7 +141,6 @@ typedef struct {
   char *body;
   enum http_encoding contentEncoding; // done by client
   enum http_encoding transferEncoding; // done hop by hop
-  CC_DynamicPool* pool;
 
 } HTTPRequest;
 
@@ -150,23 +151,25 @@ typedef struct {
   int statusCode;
   char *body;
   char* version;
-  CC_DynamicPool* pool;
   enum http_encoding contentEncoding;
   enum http_encoding transferEncoding;
-  enum http_content_type contentType;
+  char * contentType;
 
 } HTTPResponse;
 
-int initHTTPRequest(HTTPRequest *request, CC_DynamicPool* pool);
-int initHTTPResponse(HTTPResponse *response, CC_DynamicPool* pool);
+int initHTTPRequest(HTTPRequest *request);
+int initHTTPResponse(HTTPResponse *response);
 void freeHTTPRequest(HTTPRequest *request);
 void freeHTTPResponse(HTTPResponse *response);
+
+
+void configureHTTPDict(CC_HashTableConf* conf);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
 char* getHeader(CC_HashTable *dict, char *key);
 CC_Deque* getHeaderValues(CC_HashTable *dict, char *key);
-void setHeaderPool(CC_HashTable* dict, CC_DynamicPool* pool,char *key, char *value);
-#define setHeader(r,k,v) setHeaderPool((r)->headers,(r)->pool, k, v )
-#define setQueryParam(r,k,v) setHeaderPool((r)->urlParams,(r)->pool, k, v )
+void setHeaderPool(CC_HashTable* dict,char *key, char *value);
+#define setHeader(r,k,v) setHeaderPool((r)->headers, k, v )
+#define setQueryParam(r,k,v) setHeaderPool((r)->urlParams, k, v )
 
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();

@@ -6,10 +6,16 @@
 #include "threadpool.h"
 #include <netinet/in.h>
 
+extern thread_local Arena arena ;
+
+void* custom_alloc(size_t size);
+void* custom_calloc(size_t blocks,size_t size);
+void custom_free(void* ptr);
+char* custom_strdup(char* str);
+
 typedef struct
 {
     CC_Array *requestHandlers;
-    CC_DynamicPool *pool;
 }Router;
 
 typedef struct
@@ -23,7 +29,6 @@ typedef struct
     struct sockaddr_in sock;
     int socketfd;
     ThreadPool pool;
-    CC_DynamicPool *arena;
     Router router;
 }Server;
 
@@ -36,7 +41,7 @@ typedef struct{
 } FileSystemHandler ;
 
 typedef struct {
-  int (*handleCallback)( HTTPRequest* request, HTTPResponse* response ,void* handlerObj);
+  int (*handleCallback)( HTTPRequest* request, HTTPResponse* response ,void* handlerObj, int connfd);
   void* handlerObject;
   int (*getPrefixMatch)(HTTPRequest*, void* handlerObj);
 }RequestHandler;
@@ -51,11 +56,11 @@ void launch(Server *server) ;
 void shutDownServer(Server* server);
 
 
-void initRouter(Router *router, CC_DynamicPool *pool);
+void initRouter(Router *router);
 void addHandler(Router* router, RequestHandler* handler );
 RequestHandler* longestPrefixMatch(Router* router, HTTPRequest* request);
 void addFileSystemHandlerServer(Server* server, FileSystemHandler* handler);
 void freeRouter(Router* router);
 
-void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot, CC_DynamicPool* pool);
+void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot);
 void addFileSystemHandler(Router* router, FileSystemHandler* fsHandler);

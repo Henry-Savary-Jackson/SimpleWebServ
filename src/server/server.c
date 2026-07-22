@@ -10,34 +10,53 @@
 #include <errno.h>
 #include <parser.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <threads.h>
 #include <unistd.h>
 
 #define MAX_CONN 5
+
+thread_local Arena arena;
+
+void* custom_alloc(size_t size){
+    return arena_alloc(&arena, size);
+}
+void* custom_calloc(size_t blocks,size_t size){
+    void * ptr =custom_alloc( blocks*size);
+    memset(ptr,0,blocks*size);
+    return ptr;
+}
+void custom_free(void* ptr){
+    arena_trim(&arena);
+}
+char* custom_strdup(char* str){
+    return arena_strdup(&arena, str);
+}
 
 void initServer(Server **server_p, char *host, char *name, char *webroot, int maxWorkers)
 {
 
     Server *server = malloc(sizeof(Server));
     *server_p = server;
-    cc_dynamic_pool_new(8128, &server->arena);
 
-    copyStringToPool(&server->host, host, server->arena);
-    copyStringToPool(&server->name, name, server->arena);
-    copyStringToPool(&server->webroot, webroot, server->arena);
+    server->host = arena_strdup(&arena, host);
+    server->name= arena_strdup(&arena, name);
+    server->webroot= arena_strdup(&arena, webroot);
 
     server->port = -1;
     server->maxWorkers = maxWorkers;
-    initThreadPool(&server->pool, maxWorkers, server->arena);
+    initThreadPool(&server->pool, maxWorkers);
     server->ipAddr = NULL;
     server->socketfd = socket(AF_INET, SOCK_STREAM, 0);
     memset(&server->sock, 0, sizeof(struct sockaddr_in));
-    initRouter(&server->router, server->arena);
+    initRouter(&server->router);
 }
 
 void addFileSystemHandlerServer(Server *server, FileSystemHandler *handler)
@@ -51,14 +70,13 @@ void freeServer(Server *server)
     {
         close(server->socketfd);
     }
-    cc_dynamic_pool_destroy(server->arena);
+    arena_free(&arena);
 }
 
 void setServerAddress(Server *server, char *ipAddr, int port)
 {
     server->port = port;
-    copyStringToPool(&server->ipAddr, ipAddr, server->arena);
-    struct sockaddr_in server_add;
+    server->ipAddr = arena_strdup(&arena, ipAddr);
     server->sock.sin_addr.s_addr = inet_addr(ipAddr);
     server->sock.sin_port = htons(port);
     server->sock.sin_family = AF_INET;
@@ -143,18 +161,11 @@ void handleConnection(int connfd, Server *server)
     int statusCode = HTTP_OK;
     while (keepAlive)
     {
-        CC_DynamicPoolConf poolConf;
-        CC_DynamicPool* pool;
-        cc_dynamic_pool_conf_init(&poolConf);
-        poolConf.exp_factor = 2;
-        poolConf.is_fixed = false;
-        cc_dynamic_pool_new_conf(HTTP_POOL_INITIAL_SIZE, &poolConf, &pool );
-
         HTTPRequest request;
-        initHTTPRequest(&request,pool );
+        initHTTPRequest(&request );
 
         HTTPResponse response;
-        initHTTPResponse(&response, pool);
+        initHTTPResponse(&response);
 
         int result = scanRequest(connfd, &request, &keepAlive, &statusCode);
         response.statusCode = statusCode;
@@ -164,70 +175,33 @@ void handleConnection(int connfd, Server *server)
         if (result == -1)
         {
             printf("%d", statusCode);
-            goto send_resp;
+            sendResponse(&response, connfd);
+            goto free_code;
         }
+
+
+        // choose a request handler that matches the url endpoint the most
         RequestHandler *handler = longestPrefixMatch(&server->router, &request);
         if (!handler){
-            // 404 no handler found
+            // 404 if no handler found
 
             const char * resp = "404 Not found!";
             response.statusCode = HTTP_NOT_FOUND;
             setResponseBody(&response, resp, strlen(resp));
-            goto send_resp;
-        }
-        handler->handleCallback(&request, &response, handler->handlerObject);
-
-
-        send_resp:
             sendResponse(&response, connfd);
             goto free_code;
+        }
+        // if a handler is found call the handler function that will decide how to mofidy the request
+        // and send data back via TCP to the client
+        handler->handleCallback(&request, &response, handler->handlerObject, connfd);
 
+        // free the http request and the associated meory in the arena
+        // no need to deallocate, keep the meory for future requests
         free_code:
             freeHTTPRequest(&request);
             freeHTTPResponse(&response);
-            cc_dynamic_pool_destroy(pool);
+            arena_reset(&arena);
     }
-}
-
-
-void initRouter(Router *router, CC_DynamicPool *pool)
-{
-    router->pool = pool;
-    CC_ArrayConf conf;
-    cc_array_conf_init(&conf);
-    conf.pool = pool;
-    cc_array_new_conf(&conf, (&router->requestHandlers));
-}
-
-void addHandler(Router *router, RequestHandler *handler)
-{
-    RequestHandler *newPtr = cc_dynamic_pool_malloc(sizeof(RequestHandler), router->pool);
-    memcpy(newPtr, handler, sizeof(RequestHandler));
-    cc_array_add(router->requestHandlers, newPtr);
-}
-RequestHandler *longestPrefixMatch(Router *router, HTTPRequest *request)
-{
-    int maxMatch = 0;
-    RequestHandler *longestMatchHandler = NULL;
-
-    CC_ArrayIter iterator;
-    cc_array_iter_init(&iterator, router->requestHandlers);
-    RequestHandler *currentHandler;
-    enum cc_stat stat;
-    while ((stat = cc_array_iter_next(&iterator, (void **)&currentHandler)) != CC_ITER_END)
-    {
-        int match = currentHandler->getPrefixMatch(request, currentHandler->handlerObject);
-        if (match > maxMatch)
-        {
-            maxMatch = match;
-            longestMatchHandler = currentHandler;
-        }
-    }
-    return longestMatchHandler;
-}
-void freeRouter(Router *router)
-{
-    // cc_array_destroy(router->requestHandlers);
 }
 
 

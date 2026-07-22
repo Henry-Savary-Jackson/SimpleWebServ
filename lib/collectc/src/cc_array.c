@@ -178,6 +178,7 @@ void cc_array_conf_init(CC_ArrayConf *conf)
     conf->mem_alloc = malloc;
     conf->mem_calloc = calloc;
     conf->mem_free = free;
+    conf->pool = NULL;
 }
 
 /**

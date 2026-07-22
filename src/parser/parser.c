@@ -4,6 +4,7 @@
 #include "cc_hashtable.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
+#include "server.h"
 #include "utils.h"
 #include <asm-generic/errno-base.h>
 #include <assert.h>
@@ -92,18 +93,11 @@ int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
         }
     }
 
-    int methodLen = strlen(method) +1;
-    int uriLen = strlen(uri) + 1;
-    int versionlen = strlen(version)+1;
-
     request->method = HTTP_METHOD(method);
 
-    request->uri = cc_dynamic_pool_malloc(uriLen, request->pool);
-    memcpy(request->uri, uri, uriLen );
+    request->uri = custom_strdup(uri);
 
-    request->version = cc_dynamic_pool_malloc(versionlen, request->pool);
-    memcpy(request->version, version, versionlen);
-
+    request->version = custom_strdup(version);
 
     return 0;
 }
@@ -126,7 +120,8 @@ int scanHeaders(HTTPStream *stream, HTTPRequest *request)
         char key[lineLength];
         char value[lineLength];
 
-        sscanf(line, "%[^:]: %s", key, value);
+        sscanf(line, "%[^:]: ", key);
+        strcpy(value,line + strlen(key)+ strlen(": ")) ;
 
         setHeader(request, key, value);
     }
@@ -167,7 +162,7 @@ int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
 int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
 {
     HTTPStream stream;
-    initHTTPStream(&stream, connfd, request->pool);
+    initHTTPStream(&stream, connfd);
 
     // parse the first line
     int result = scanFirstLine(&stream, request);
@@ -178,7 +173,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         goto error;
     }
 
-    stringToPath(&request->uriPath, request->uri, request->pool);
+    stringToPath(&request->uriPath, request->uri);
 
     result = scanHeaders(&stream, request);
     if (result)
@@ -206,12 +201,9 @@ error:
     return -1;
 }
 
-int sendResponse(HTTPResponse *response, int connfd)
-{
-    GrowingBuffer outBuffer;
-    initGrowingBuffer(&outBuffer, response->pool, INIT_BUFFER_SIZE);
 
-    char firstline[MAX_BUFFER_SIZE];
+int prepareHTTPResponseMetadata(HTTPResponse* response, GrowingBuffer* buffer){
+    char firstline[4096];
     int totalSize = 0;
 
     char *phrase;
@@ -221,21 +213,39 @@ int sendResponse(HTTPResponse *response, int connfd)
     sprintf(firstline, "HTTP/%s %d %s\r\n", response->request->version, response->statusCode, phrase);
 
     int firstLineLength = (int)strlen(firstline);
-    appendGrowingBuffer(&outBuffer, firstline, firstLineLength);
+    appendGrowingBuffer(buffer, firstline, firstLineLength);
 
 
     char contentLengthS[METHOD_MAX_SIZE];
     sprintf(contentLengthS, "%d", response->contentLength);
     setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
-    setHeader(response, CONTENT_TYPE_HEADER_NAME, TEXT_HTML_VALUE);
+    setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
+
+    return 0;
+}
+
+int prepareResponseBody(HTTPResponse* response, GrowingBuffer* outBuffer){
+    if (response->body && response->contentLength > 0)
+    {
+      appendGrowingBuffer(outBuffer, response->body, response->contentLength);
+    }
+    return 0;
+}
+
+int sendResponse(HTTPResponse *response, int connfd)
+{
+    GrowingBuffer outBuffer;
+
+    initGrowingBuffer(&outBuffer,  INIT_BUFFER_SIZE);
+
+    prepareHTTPResponseMetadata(response, &outBuffer);
 
     encodeHeaders(response->headers, &outBuffer);
 
-    if (response->body && response->contentLength > 0)
-    {
-      appendGrowingBuffer(&outBuffer, response->body, response->contentLength);
-    }
+    prepareResponseBody(response, &outBuffer);
+
     send(connfd, outBuffer.ptr, outBuffer.size, MSG_NOSIGNAL);
+
     return 0;
 }
 
@@ -253,9 +263,9 @@ int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
         CC_Deque* list = currentEntry->value;
         char * value ;
         cc_deque_get_first(list, (void**)&value);
-        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key)+ strlen(value));
+        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key)+ strlen(value)) +1;
         char currentLine[maxLineLength]; //
-        sprintf(currentLine, "%s: %s\r\n", (char *)currentEntry->key,value);
+        snprintf(currentLine,maxLineLength, "%s: %s\r\n", (char *)currentEntry->key,value);
         int lineLength = (int)strlen(currentLine);
         appendGrowingBuffer(buffer, currentLine, lineLength);
     }
