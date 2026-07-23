@@ -7,6 +7,7 @@
 #include "http.h"
 #include "utils.h"
 #include <magic.h>
+#include <zlib.h>
 
 typedef struct {
     char * major;
@@ -32,6 +33,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAliv, int* status) ;
 
 int sendResponse(HTTPResponse *response, int connfd) ;
 int encodeHeaders(CC_HashTable* headers, GrowingBuffer* buffer) ;
+int encodeResponseBody(HTTPResponse* response, GrowingBuffer* buffer) ;
 int prepareHTTPResponseMetadata(HTTPResponse* response, GrowingBuffer* buffer);
 int prepareResponseBody(HTTPResponse* response, GrowingBuffer* outBuffer);
 
@@ -59,7 +61,7 @@ CC_PQueue* decodeAcceptTypes(CC_Deque* teList);
 void *decodeSingleMimetypeQualityValue(char *qvString);
 void *decodeSingleEncodingQualityValue(char *qvString);
 
-enum http_encoding decideEncoding(CC_Deque* teList, CC_Array* supportedEncodings);
+int decideContentEncoding(CC_PQueue *encqueue, enum http_encoding* chosenEncoding);
 void setTransferEncoding(HTTPResponse* response, enum http_encoding encoding);
 
 int decideContentType(CC_PQueue* ctqueue, char* actualMimetype, char** decidedMimetype);
@@ -68,3 +70,18 @@ void setContentType(HTTPResponse* response, char* mimetype);
 char* getMimeTypeForFile(char* filepath);
 
 int loadMagicDB();
+
+int decode_zlib_prepare(z_streamp strm);
+int encode_zlib_prepare(z_streamp strm);
+int encode_gzip_prepare(z_streamp strm);
+int decode_gzip_prepare(z_streamp strm);
+
+int decode_zstream(z_streamp strm, char **output, int *outSize);
+int encode_zlib(char *data, int inSize, char **output, int *outSize);
+int decode_zlib(char *data, int inSize, char **output, int *outSize);
+
+int encode_gzip(char *data, int inSize, char **output, int *outSize);
+void decode_gzip(char *data, int inSize, char **output, int *outSize);
+
+int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk);
+int inflateChunk(z_streamp strm, int outSize, char *outChunk);

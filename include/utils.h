@@ -34,6 +34,7 @@ typedef struct
 
 void initGrowingBuffer(GrowingBuffer *buffer, int capacity);
 void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size);
+void increaseCapacityGrowingBuffer(GrowingBuffer* buffer, int amount);
 
 void initString(String *str);
 void freeString(String *str);
@@ -47,6 +48,10 @@ int arrLineSearch(char **arr, int size, char *key);
 #define HTTP_ENCODING(s)                                                                                               \
     (enum http_encoding)(                                                                                              \
         arrLineSearch((char **)http_encoding_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)))
+
+#define HTTP_SUPPORTS_ENCODING(e) (bool)(                                                                                              \
+        arrLineSearch((char **)http_encoding_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)) == -1)
+
 #define HTTP_CONTENT_TYPE(s) (enum http_content_type)(arrLineSearch(char**)http_content_type_arr, sizeof(http_method_arr)/sizeof(char *), ( char*)(s) ))
 
 #define HTTP_METHOD_STRING(e) (char *)(http_method_arr[(int)(e)])

@@ -24,22 +24,26 @@
 #define HTTP_METHOD_DELETE "DELETE"
 #define HTTP_METHOD_HEAD "HEAD"
 #define HTTP_METHOD_OPTIONS "OPTIONS"
+#define METHOD_UNKNOWN_STR "Unknown"
 #define HTTP_NUM_SUPPORTED_METHODS 6
 
-enum http_method {GET=0, POST=1, PUT=2, DELETE=3, HEAD=4, OPTIONS=5};
+enum http_method {GET=0, POST=1, PUT=2, DELETE=3, HEAD=4, OPTIONS=5, UNKNOWN_METHOD};
 
-extern const char* http_method_arr[HTTP_NUM_SUPPORTED_METHODS] ;
+extern const char* http_method_arr[HTTP_NUM_SUPPORTED_METHODS+1] ;
 
 #define HTTP_NUM_SUPPORTED_ENCODINGS 3
 
-enum http_encoding {GZIP=0, DEFLATE=1, IDENTITY=2};
+enum http_encoding {GZIP=0, DEFLATE=1, IDENTITY_ENCODING=2, WILDCARD=3 ,UNKNOWN_ENCODING=4};
 
+#define DEFAULT_ENCODING IDENTITY_ENCODING
 
 #define GZIP_HEADER_VALUE "gzip"
 #define ZLIB_HEADER_VALUE "deflate"
 #define IDENTITY_HEADER_VALUE "identity"
+#define WILDCARD_HEADER_VALUE "*"
+#define ENCODING_UNKNOWN_STR "Unknown"
 
-extern const char* http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS] ;
+extern const char* http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS+2] ;
 
 #define MULTIPART_FORMDATA_VALUE "multipart/form-data"
 #define TEXT_HTML_VALUE "text/html"
@@ -49,7 +53,7 @@ extern const char* http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS] ;
 
 enum http_content_type { multipart_formdata=0, text_html=1, text_plain=2 };
 
-extern const char* http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE] ;
+extern const char* http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE+1] ;
 
 // status code
 extern const int HTTP_OK ;
@@ -63,6 +67,7 @@ extern const int HTTP_NOT_FOUND;
 extern const int HTTP_METHOD_UNSUPPORTED;
 extern const int HTTP_NOT_ACCEPTED;
 extern const int HTTP_CONTENT_LENGTH_REQUIRED;
+extern const int HTTP_UNSUPPORTED_MEDIA_TYPE ;
 extern const int HTTP_SERVER_ERROR;
 
 // status code reason phrase
@@ -79,6 +84,7 @@ extern const char *HTTP_NOT_FOUND_PHRASE;
 extern const char *HTTP_METHOD_UNSUPPORTED_PHRASE;
 extern const char *HTTP_NOT_ACCEPTED_PHRASE;
 extern const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE;
+extern const char * HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE ;
 extern const char *HTTP_SERVER_ERROR_PHRASE;
 
 typedef struct {
@@ -99,8 +105,8 @@ enum http_stream_status
     BUF_TOO_BIG,
 };
 
-#define HTTP_STREAM_MAX_BUFFER 4096
-#define HTTP_STREAM_INIT_BUFFER 64
+#define HTTP_STREAM_MAX_BUFFER 2<<24
+#define HTTP_STREAM_INIT_BUFFER 2<<10
 #define HTTP_POOL_INITIAL_SIZE 2<<16
 extern const char *HTTP_LINE_END_TOK;
 extern const int HTTP_LINE_END_TOK_SIZE;

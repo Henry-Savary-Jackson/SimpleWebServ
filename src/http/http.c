@@ -25,6 +25,7 @@ const int HTTP_NOT_FOUND = 404;
 const int HTTP_METHOD_UNSUPPORTED = 405;
 const int HTTP_NOT_ACCEPTED = 406;
 const int HTTP_CONTENT_LENGTH_REQUIRED = 411;
+const int HTTP_UNSUPPORTED_MEDIA_TYPE = 415;
 const int HTTP_SERVER_ERROR = 500;
 
 const char *HTTP_OK_PHRASE = "OK";
@@ -36,22 +37,34 @@ const char *HTTP_UNAUTHORIZED_PHRASE = "Unauthorized";
 const char *HTTP_FORBIDDEN_PHRASE = "Forbidden";
 const char *HTTP_NOT_FOUND_PHRASE = "Not Found";
 const char *HTTP_METHOD_UNSUPPORTED_PHRASE = "Method Not Allowed";
-const char *HTTP_NOT_ACCEPTED_PHRASE= "Not Accepted";
+const char *HTTP_NOT_ACCEPTED_PHRASE = "Not Acceptable";
 const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE = "Length Required";
+const char * HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE = "Unsupported Media Type";
 const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 
 CC_HashTable *code_to_phrase;
 const char *HTTP_LINE_END_TOK = "\r\n";
 const int HTTP_LINE_END_TOK_SIZE = strlen("\r\n");
 
-const char *http_method_arr[HTTP_NUM_SUPPORTED_METHODS] =
-    {HTTP_METHOD_GET, HTTP_METHOD_POST, HTTP_METHOD_PUT, HTTP_METHOD_DELETE, HTTP_METHOD_HEAD, HTTP_METHOD_OPTIONS};
-const char *http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS] = {GZIP_HEADER_VALUE,
-                                                               ZLIB_HEADER_VALUE,
-                                                               IDENTITY_HEADER_VALUE};
-const char *http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE] = {MULTIPART_FORMDATA_VALUE,
-                                                                      TEXT_HTML_VALUE,
-                                                                      TEXT_PLAIN_VALUE};
+const char *http_method_arr[HTTP_NUM_SUPPORTED_METHODS + 1] = {HTTP_METHOD_GET,
+                                                               HTTP_METHOD_POST,
+                                                               HTTP_METHOD_PUT,
+                                                               HTTP_METHOD_DELETE,
+                                                               HTTP_METHOD_HEAD,
+                                                               HTTP_METHOD_OPTIONS,
+                                                               METHOD_UNKNOWN_STR};
+const char *http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS + 2] = {
+    GZIP_HEADER_VALUE,
+    ZLIB_HEADER_VALUE,
+    IDENTITY_HEADER_VALUE,
+    WILDCARD_HEADER_VALUE,
+    ENCODING_UNKNOWN_STR,
+};
+const char *http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE + 1] = {
+    MULTIPART_FORMDATA_VALUE,
+    TEXT_HTML_VALUE,
+    TEXT_PLAIN_VALUE,
+};
 
 #define HTTP_REQUEST_INIT 4096
 
@@ -174,7 +187,8 @@ enum http_stream_status receiveData(HTTPStream *stream)
     return RECV_SUCCESS;
 }
 
-void configureHTTPDict(CC_HashTableConf* conf){
+void configureHTTPDict(CC_HashTableConf *conf)
+{
     cc_hashtable_conf_init(conf);
     conf->key_length = KEY_LENGTH_VARIABLE;
     conf->hash = STRING_HASH;
@@ -304,7 +318,7 @@ CC_Deque *getHeaderValues(CC_HashTable *dict, char *key)
     return deque;
 }
 
-void setHeaderPool(CC_HashTable *dict,  char *key, char *value)
+void setHeaderPool(CC_HashTable *dict, char *key, char *value)
 {
     CC_Deque *valueQueue = getHeaderValues(dict, key);
     if (valueQueue == NULL)

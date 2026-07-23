@@ -11,8 +11,10 @@
 #include <parser.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <threads.h>
+#include <zconf.h>
 #include <zlib.h>
 #include <zstd.h>
 
@@ -35,12 +37,12 @@ bool matchMimeType(MimeTypeQualityValue *acceptQv, MimeTypeQualityValue *actualQ
     {
         return false;
     }
-    if (!strcmp(acceptQv->minor, "*")){
+    if (!strcmp(acceptQv->minor, "*"))
+    {
         return true;
     }
     return strcmp(acceptQv->minor, actualQv->minor) == 0;
 }
-
 
 
 int cmpMimeTypeSpecificity(MimeTypeQualityValue *qv1, MimeTypeQualityValue *qv2)
@@ -71,43 +73,44 @@ int cmpMimeTypeSpecificity(MimeTypeQualityValue *qv1, MimeTypeQualityValue *qv2)
     return 0;
 }
 
-bool mimeTypeContains(MimeTypeQualityValue* choice, MimeTypeQualityValue* actual){
+bool mimeTypeContains(MimeTypeQualityValue *choice, MimeTypeQualityValue *actual)
+{
     int majorGen1 = strcmp(choice->major, "*");
-    if (!majorGen1 )
+    if (!majorGen1)
     {
         return true;
     }
 
-    if (strcmp(choice->major, actual->major)!=0){
+    if (strcmp(choice->major, actual->major) != 0)
+    {
         return false;
     }
     // only compare if major types match
     // if one has the minor type specfied and one doesnt
     // choose the the more specific one
     int minGen1 = strcmp(choice->minor, "*");
-    if (!minGen1 )
+    if (!minGen1)
     {
         return true;
     }
 
-    return (strcmp(choice->minor, actual->minor)== 0);
+    return (strcmp(choice->minor, actual->minor) == 0);
 }
 
 void *decodeSingleEncodingQualityValue(char *qvString)
 {
     float q_value = DEFAULT_Q_VALUE;
     char q_value_s[ENCODING_STR_MAX_SIZE];
-    char *q_value_s_endptr = NULL;
     char encodingStr[ENCODING_STR_MAX_SIZE];
 
-    int count = sscanf(qvString, "%63[^;];q=%63s", encodingStr, q_value_s);
+    int count = sscanf(qvString, " %63[^;];q=%63s", encodingStr, q_value_s);
     if (count == 0)
     {
         return NULL;
     }
     if (count > 1)
     {
-        q_value = strtof(q_value_s, &q_value_s_endptr);
+        q_value = strtof(q_value_s, NULL);
     }
     EncodingQualityValue *encoding = custom_alloc(sizeof(EncodingQualityValue));
     encoding->encoding = HTTP_ENCODING(encodingStr);
@@ -140,7 +143,7 @@ void decodeQualityValueString(char *qvString, CC_PQueue *pqueue, void *(*decodeF
     int index = 0;
     int consumedIndex = 0;
     int writeIndex = 0;
-    while (index < strLen+1)
+    while (index < strLen + 1)
     {
         char c = qvString[index];
         index++;
@@ -183,11 +186,11 @@ int cmpEncodingQV(const void *ptr1, const void *ptr2)
     EncodingQualityValue *qv2 = (EncodingQualityValue *)ptr2;
     if (qv1->q > qv2->q)
     {
-        return -1;
+        return 1;
     }
     if (qv1->q < qv2->q)
     {
-        return 1;
+        return -1;
     }
     return 0;
 }
@@ -223,15 +226,32 @@ CC_PQueue *decodeQualityValues(CC_Deque *teList, void *(*decodeFunc)(char *), in
     return pqueue;
 }
 
-enum http_encoding decideEncoding(CC_Deque *teList, CC_Array *supportedEncodings)
-{
-    return IDENTITY;
-}
+
 void setTransferEncoding(HTTPResponse *response, enum http_encoding encoding)
 {
     response->transferEncoding = encoding;
 }
 
+int decideContentEncoding(CC_PQueue *encqueue, enum http_encoding *chosenEncoding)
+{
+    EncodingQualityValue *topChoice;
+    enum cc_stat stat;
+    while ((stat = cc_pqueue_pop(encqueue, (void **)&topChoice)) == CC_OK)
+    {
+        // if the encoding string is unknown
+        if (topChoice->encoding == WILDCARD)
+        {
+            return DEFAULT_ENCODING;
+        }
+        if (topChoice->encoding != UNKNOWN_ENCODING)
+        {
+            return topChoice->encoding;
+        }
+    }
+    *chosenEncoding = UNKNOWN_ENCODING;
+    return -1;
+    return 0;
+}
 
 int decideContentType(CC_PQueue *ctqueue, char *actualMimetype, char **decidedMimetype)
 {
@@ -272,8 +292,8 @@ int loadMagicDB()
     if (magic_load(magic, NULL) != 0)
 
     {
-        const char * exp = magic_error(magic);
-        fprintf(stderr, "%s",exp);
+        const char *exp = magic_error(magic);
+        fprintf(stderr, "%s", exp);
         magic_close(magic);
         return -1;
     }
@@ -281,6 +301,162 @@ int loadMagicDB()
 }
 
 
-void encode_gzip(char *data)
+int encode_zlib(char *data, int inSize, char **output, int *outSize)
 {
+    uLongf newSize = compressBound(inSize);;
+    *output = custom_alloc(newSize);
+    int result = compress((Bytef *)*output, &newSize, (const Bytef *)data, (uLong)inSize);
+    switch (result)
+    {
+    case Z_OK:
+        *outSize = (int)newSize;
+        return 0;
+    default:
+        return -1;
+    }
+}
+
+// TODO FIX
+int decode_zlib(char *data, int inSize, char **output, int *outSize)
+{
+    z_stream strm;
+    strm.avail_in = inSize;
+    strm.next_in = (Bytef *)data;
+    decode_zlib_prepare(&strm);
+    return decode_zstream(&strm, output, outSize);
+}
+
+int decode_zlib_prepare(z_streamp strm)
+{
+
+    strm->zfree = Z_NULL;
+    strm->zalloc = Z_NULL;
+    strm->opaque = Z_NULL;
+    inflateInit(strm);
+    return 0;
+}
+
+int encode_zlib_prepare(z_streamp strm)
+{
+
+    strm->zfree = Z_NULL;
+    strm->zalloc = Z_NULL;
+    strm->opaque = Z_NULL;
+    deflateInit(strm, Z_DEFAULT_COMPRESSION);
+    return 0;
+}
+
+int encode_gzip_prepare(z_streamp strm)
+{
+    strm->zfree = Z_NULL;
+    strm->zalloc = Z_NULL;
+    strm->opaque = Z_NULL;
+    deflateInit2(strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 16 | 15, 8, Z_DEFAULT_STRATEGY);
+    return 0;
+}
+
+int decode_gzip_prepare(z_streamp strm)
+{
+    strm->zfree = Z_NULL;
+    strm->zalloc = Z_NULL;
+    strm->opaque = Z_NULL;
+    inflateInit2(strm, 16 | 15);
+}
+
+int encode_gzip(char *data, int inSize, char **output, int *outSize)
+{
+    z_stream strm;
+    encode_gzip_prepare(&strm);
+
+    strm.next_in = (Bytef *)data;
+    strm.avail_in = inSize;
+
+    // allocate output buffer after init
+    int bound = (int)deflateBound(&strm, inSize);
+    *output = custom_alloc(bound);
+    strm.next_out = (Bytef *)*output;
+    strm.avail_out = bound;
+
+    // run the deflation algo
+    uLong resultDeflate = deflate(&strm, Z_FINISH);
+    if (resultDeflate != Z_OK || resultDeflate != Z_STREAM_END)
+    {
+        return -1;
+    }
+    // get the sizeof data written
+    *outSize = bound - (int)strm.avail_out;
+
+    deflateEnd(&strm);
+    return 0;
+}
+
+int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk)
+{
+    strm->next_in = (Bytef *)chunk;
+    strm->avail_in = chunkSize;
+    strm->avail_out = chunkSize;
+    strm->next_out = (Bytef *)outChunk;
+    int ret = deflate(strm, Z_NO_FLUSH);
+    assert(ret != Z_STREAM_ERROR);
+    return chunkSize - (int)strm->avail_out;
+}
+
+
+int inflateChunk(z_streamp strm, int outSize, char *outChunk)
+{
+
+    int have = outSize;
+    strm->avail_out = outSize;
+    strm->next_out = (Bytef *)outChunk;
+    int ret = inflate(strm, Z_NO_FLUSH);
+    switch (ret)
+    {
+    case Z_NEED_DICT:
+        ret = Z_DATA_ERROR; /* and fall through */
+    case Z_DATA_ERROR:
+    case Z_MEM_ERROR:
+        (void)inflateEnd(strm);
+        return ret;
+    default:
+        break;
+    }
+    // return the amount inflated
+    return outSize - (int)strm->avail_out;
+}
+
+int decode_zstream(z_streamp strm, char **output, int *outSize)
+{
+    const int CHUNK_SIZE = 2048;
+    GrowingBuffer outGrowingBuffer;
+    initGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
+    int n_written = 0;
+    while ((n_written = inflateChunk(strm, CHUNK_SIZE, outGrowingBuffer.ptr + outGrowingBuffer.size)) > 0)
+    {
+        increaseCapacityGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
+        outGrowingBuffer.size += n_written;
+        if (n_written < CHUNK_SIZE)
+        {
+            // end
+            break;
+        }
+    }
+    if (n_written < 0)
+    {
+        // uh oh errror
+        return n_written;
+    }
+    *outSize = outGrowingBuffer.size;
+    *output = outGrowingBuffer.ptr;
+
+    inflateEnd(strm);
+    return 0;
+}
+
+void decode_gzip(char *data, int inSize, char **output, int *outSize)
+{
+    z_stream strm;
+    strm.avail_in = inSize;
+    strm.next_in = (Bytef *)data;
+    decode_gzip_prepare(&strm);
+    decode_zstream(&strm, output, outSize);
 }

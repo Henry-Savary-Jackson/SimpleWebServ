@@ -17,6 +17,14 @@ void initGrowingBuffer(GrowingBuffer *buffer, int capacity)
 void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size)
 {
     int newSize = (int)size + buffer->size;
+    increaseCapacityGrowingBuffer(buffer, (int)size);
+    memcpy(buffer->ptr + buffer->size, src, size);
+    buffer->size = newSize;
+}
+
+void increaseCapacityGrowingBuffer(GrowingBuffer *buffer, int amount)
+{
+    int newSize = amount + buffer->size;
     if (buffer->capacity <= newSize)
     {
         do
@@ -24,25 +32,24 @@ void appendGrowingBuffer(GrowingBuffer *buffer, char *src, size_t size)
             buffer->capacity <<= 1;
         } while (buffer->capacity <= newSize);
 
-        char *new_ptr = custom_alloc(buffer->capacity );
+        char *new_ptr = custom_alloc(buffer->capacity);
         memcpy(new_ptr, buffer->ptr, buffer->size);
         buffer->ptr = new_ptr;
     }
-    memcpy(buffer->ptr + buffer->size, src, size);
-    buffer->size = newSize;
 }
 
 
 void initString(String *s)
 {
-    memset(s,0, sizeof(String));
+    memset(s, 0, sizeof(String));
 }
 
 void freeString(String *s)
 {
-    if (s->buf) {
+    if (s->buf)
+    {
         free(s->buf);
-}
+    }
 }
 
 void copyString(String *dst, char *src)
@@ -53,17 +60,22 @@ void copyString(String *dst, char *src)
     strcpy(dst->buf, src);
 }
 
-void copyStringToPool(char ** dst, char* src, CC_DynamicPool* pool){
-    *dst= cc_dynamic_pool_malloc(strlen(src)+1, pool);
+void copyStringToPool(char **dst, char *src, CC_DynamicPool *pool)
+{
+    *dst = cc_dynamic_pool_malloc(strlen(src) + 1, pool);
     strcpy(*dst, src);
 }
 
-
-
-int arrLineSearch(char** arr, int size, char* key){
-    int i =0 ;
-    while(i < size){
-        if (!strcmp(key, arr[i])) break;
+// we assume the last enum is for unknown
+int arrLineSearch(char **arr, int size, char *key)
+{
+    int i = 0;
+    while (i < size - 1)
+    {
+        if (!strcmp(key, arr[i]))
+        {
+            return i;
+        }
         i++;
     }
     return i;

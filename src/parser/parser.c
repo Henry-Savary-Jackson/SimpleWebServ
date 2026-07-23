@@ -121,7 +121,7 @@ int scanHeaders(HTTPStream *stream, HTTPRequest *request)
         char value[lineLength];
 
         sscanf(line, "%[^:]: ", key);
-        strcpy(value,line + strlen(key)+ strlen(": ")) ;
+        strcpy(value, line + strlen(key) + strlen(": "));
 
         setHeader(request, key, value);
     }
@@ -130,9 +130,10 @@ int scanHeaders(HTTPStream *stream, HTTPRequest *request)
 
 int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
 {
-    char * contentLengthS = getHeader(request->headers, CONTENT_LENGTH_HEADER_NAME);
+    char *contentLengthS = getHeader(request->headers, CONTENT_LENGTH_HEADER_NAME);
+    char *contentEncodingS = getHeader(request->headers, CONTENT_ENCODING_HEADER_NAME);
 
-    CC_Deque* transferCodingValues = getHeaderValues(request->headers, TRANSFER_CODING_HEADER_NAME);
+    // CC_Deque *transferCodingValues = getHeaderValues(request->headers, TRANSFER_CODING_HEADER_NAME);
 
     if (!strcmp(HTTP_METHOD_GET, HTTP_METHOD_STRING(request->method)) && !contentLengthS)
     {
@@ -145,16 +146,44 @@ int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
         return -1;
         // read message body into request buffer
     }
+    if (!contentEncodingS)
+    {
+        request->contentEncoding = IDENTITY_ENCODING;
+    }
+    else
+    {
+        request->contentEncoding = HTTP_ENCODING(contentEncodingS);
+        if (request->contentEncoding == UNKNOWN_ENCODING)
+        {
+            *status = HTTP_UNSUPPORTED_MEDIA_TYPE;
+            return -1;
+        }
+    }
+
 
     char *contLengthSTemp; //temp
     request->contentLength = (int)strtol(contentLengthS, &contLengthSTemp, 10);
     // read body of message using content length
 
     enum http_stream_status strStatus = consumeBody(stream, &request->body, request->contentLength);
-
     if (strStatus != RECV_SUCCESS)
     {
         return -1;
+    }
+
+    char *newPtr = NULL;
+    switch (request->contentEncoding)
+    {
+    case GZIP:
+        decode_gzip(request->body, request->contentLength, &newPtr, &request->contentLength);
+        request->body = newPtr;
+        break;
+    case DEFLATE:
+        decode_zlib(request->body, request->contentLength, &newPtr, &request->contentLength);
+        request->body = newPtr;
+        break;
+    default:
+        break;
     }
     return 0;
 }
@@ -182,8 +211,8 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         goto error;
     }
 
-   // the Host header is required
-    char* hasHost = getHeader(request->headers, HOST_HEADER_NAME);
+    // the Host header is required
+    char *hasHost = getHeader(request->headers, HOST_HEADER_NAME);
     if (!hasHost)
     {
         *status = HTTP_BAD_REQUEST;
@@ -194,7 +223,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
     goto success;
 success:
     char *connect = getHeader(request->headers, CONNECTION_HEADER_NAME);
-    *keepAlive = ( connect && !strcmp(connect, "keep-alive"));
+    *keepAlive = (connect && !strcmp(connect, "keep-alive"));
     *status = HTTP_OK;
     return 0;
 error:
@@ -202,7 +231,8 @@ error:
 }
 
 
-int prepareHTTPResponseMetadata(HTTPResponse* response, GrowingBuffer* buffer){
+int prepareHTTPResponseMetadata(HTTPResponse *response, GrowingBuffer *buffer)
+{
     char firstline[4096];
     int totalSize = 0;
 
@@ -219,15 +249,35 @@ int prepareHTTPResponseMetadata(HTTPResponse* response, GrowingBuffer* buffer){
     char contentLengthS[METHOD_MAX_SIZE];
     sprintf(contentLengthS, "%d", response->contentLength);
     setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
-    setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
+
+    if (response->contentLength > 0 &&response->contentEncoding != IDENTITY_ENCODING)
+    {
+        setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
+        setHeader(response, CONTENT_ENCODING_HEADER_NAME, HTTP_ENCODING_STRING(response->contentEncoding));
+    }
 
     return 0;
 }
 
-int prepareResponseBody(HTTPResponse* response, GrowingBuffer* outBuffer){
+
+int prepareResponseBody(HTTPResponse *response, GrowingBuffer *outBuffer)
+{
     if (response->body && response->contentLength > 0)
     {
-      appendGrowingBuffer(outBuffer, response->body, response->contentLength);
+        char *newBodyPtr = NULL;
+        switch (response->contentEncoding)
+        {
+        case GZIP:
+            encode_gzip(response->body, response->contentLength, &newBodyPtr, &response->contentLength);
+            response->body = newBodyPtr;
+            break;
+        case DEFLATE:
+            encode_zlib(response->body, response->contentLength, &newBodyPtr, &response->contentLength);
+            response->body = newBodyPtr;
+            break;
+        default:
+            break;
+        }
     }
     return 0;
 }
@@ -236,16 +286,23 @@ int sendResponse(HTTPResponse *response, int connfd)
 {
     GrowingBuffer outBuffer;
 
-    initGrowingBuffer(&outBuffer,  INIT_BUFFER_SIZE);
+    initGrowingBuffer(&outBuffer, INIT_BUFFER_SIZE);
 
+    prepareResponseBody(response, &outBuffer);
     prepareHTTPResponseMetadata(response, &outBuffer);
 
     encodeHeaders(response->headers, &outBuffer);
-
-    prepareResponseBody(response, &outBuffer);
+    encodeResponseBody(response, &outBuffer);
 
     send(connfd, outBuffer.ptr, outBuffer.size, MSG_NOSIGNAL);
 
+    return 0;
+}
+
+int encodeResponseBody(HTTPResponse* response, GrowingBuffer* buffer) {
+    if (response->body && response->contentLength > 0){
+        appendGrowingBuffer(buffer, response->body, response->contentLength);
+    }
     return 0;
 }
 
@@ -260,12 +317,12 @@ int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
     while ((stat = cc_hashtable_iter_next(&iter, &currentEntry)) != CC_ITER_END)
     {
 
-        CC_Deque* list = currentEntry->value;
-        char * value ;
-        cc_deque_get_first(list, (void**)&value);
-        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key)+ strlen(value)) +1;
+        CC_Deque *list = currentEntry->value;
+        char *value;
+        cc_deque_get_first(list, (void **)&value);
+        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key) + strlen(value)) + 1;
         char currentLine[maxLineLength]; //
-        snprintf(currentLine,maxLineLength, "%s: %s\r\n", (char *)currentEntry->key,value);
+        snprintf(currentLine, maxLineLength, "%s: %s\r\n", (char *)currentEntry->key, value);
         int lineLength = (int)strlen(currentLine);
         appendGrowingBuffer(buffer, currentLine, lineLength);
     }
