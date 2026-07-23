@@ -172,14 +172,23 @@ int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
     }
 
     char *newPtr = NULL;
+    int ret = 0;
     switch (request->contentEncoding)
     {
     case GZIP:
-        decode_gzip(request->body, request->contentLength, &newPtr, &request->contentLength);
+        ret = decode_gzip(request->body, request->contentLength, &newPtr, &request->contentLength);
+        if (ret){
+            *status = HTTP_BAD_REQUEST;
+            return -1;
+        }
         request->body = newPtr;
         break;
     case DEFLATE:
-        decode_zlib(request->body, request->contentLength, &newPtr, &request->contentLength);
+        ret =decode_zlib(request->body, request->contentLength, &newPtr, &request->contentLength);
+        if (ret){
+            *status = HTTP_BAD_REQUEST;
+            return -1;
+        }
         request->body = newPtr;
         break;
     default:
@@ -219,7 +228,11 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
         printf("Host header missing!");
         goto error;
     }
-    scanBody(&stream, request, status);
+    int ret = scanBody(&stream, request, status);
+    if (ret){
+        printf("Failed to read body");
+        goto error;
+    }
     goto success;
 success:
     char *connect = getHeader(request->headers, CONNECTION_HEADER_NAME);

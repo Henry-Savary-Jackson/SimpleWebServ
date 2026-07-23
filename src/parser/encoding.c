@@ -332,8 +332,7 @@ int decode_zlib_prepare(z_streamp strm)
     strm->zfree = Z_NULL;
     strm->zalloc = Z_NULL;
     strm->opaque = Z_NULL;
-    inflateInit(strm);
-    return 0;
+    return inflateInit(strm);
 }
 
 int encode_zlib_prepare(z_streamp strm)
@@ -342,8 +341,7 @@ int encode_zlib_prepare(z_streamp strm)
     strm->zfree = Z_NULL;
     strm->zalloc = Z_NULL;
     strm->opaque = Z_NULL;
-    deflateInit(strm, Z_DEFAULT_COMPRESSION);
-    return 0;
+    return deflateInit(strm, Z_DEFAULT_COMPRESSION);
 }
 
 int encode_gzip_prepare(z_streamp strm)
@@ -351,8 +349,7 @@ int encode_gzip_prepare(z_streamp strm)
     strm->zfree = Z_NULL;
     strm->zalloc = Z_NULL;
     strm->opaque = Z_NULL;
-    deflateInit2(strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 16 | 15, 8, Z_DEFAULT_STRATEGY);
-    return 0;
+    return deflateInit2(strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 16 | 15, 8, Z_DEFAULT_STRATEGY);
 }
 
 int decode_gzip_prepare(z_streamp strm)
@@ -360,7 +357,7 @@ int decode_gzip_prepare(z_streamp strm)
     strm->zfree = Z_NULL;
     strm->zalloc = Z_NULL;
     strm->opaque = Z_NULL;
-    inflateInit2(strm, 16 | 15);
+    return inflateInit2(strm, 16 | 15);
 }
 
 int encode_gzip(char *data, int inSize, char **output, int *outSize)
@@ -379,7 +376,7 @@ int encode_gzip(char *data, int inSize, char **output, int *outSize)
 
     // run the deflation algo
     uLong resultDeflate = deflate(&strm, Z_FINISH);
-    if (resultDeflate != Z_OK || resultDeflate != Z_STREAM_END)
+    if (resultDeflate != Z_OK && resultDeflate != Z_STREAM_END)
     {
         return -1;
     }
@@ -408,7 +405,7 @@ int inflateChunk(z_streamp strm, int outSize, char *outChunk)
     int have = outSize;
     strm->avail_out = outSize;
     strm->next_out = (Bytef *)outChunk;
-    int ret = inflate(strm, Z_NO_FLUSH);
+    int ret = inflate(strm, Z_SYNC_FLUSH);
     switch (ret)
     {
     case Z_NEED_DICT:
@@ -432,8 +429,8 @@ int decode_zstream(z_streamp strm, char **output, int *outSize)
     int n_written = 0;
     while ((n_written = inflateChunk(strm, CHUNK_SIZE, outGrowingBuffer.ptr + outGrowingBuffer.size)) > 0)
     {
-        increaseCapacityGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
         outGrowingBuffer.size += n_written;
+        increaseCapacityGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
         if (n_written < CHUNK_SIZE)
         {
             // end
@@ -452,11 +449,11 @@ int decode_zstream(z_streamp strm, char **output, int *outSize)
     return 0;
 }
 
-void decode_gzip(char *data, int inSize, char **output, int *outSize)
+int decode_gzip(char *data, int inSize, char **output, int *outSize)
 {
     z_stream strm;
     strm.avail_in = inSize;
     strm.next_in = (Bytef *)data;
     decode_gzip_prepare(&strm);
-    decode_zstream(&strm, output, outSize);
+    return decode_zstream(&strm, output, outSize);
 }

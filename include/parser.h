@@ -81,7 +81,7 @@ int encode_zlib(char *data, int inSize, char **output, int *outSize);
 int decode_zlib(char *data, int inSize, char **output, int *outSize);
 
 int encode_gzip(char *data, int inSize, char **output, int *outSize);
-void decode_gzip(char *data, int inSize, char **output, int *outSize);
+int decode_gzip(char *data, int inSize, char **output, int *outSize);
 
 int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk);
 int inflateChunk(z_streamp strm, int outSize, char *outChunk);

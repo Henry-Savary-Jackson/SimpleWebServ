@@ -47,7 +47,7 @@ int arrLineSearch(char **arr, int size, char *key);
     (enum http_method)(arrLineSearch((char **)http_method_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)))
 #define HTTP_ENCODING(s)                                                                                               \
     (enum http_encoding)(                                                                                              \
-        arrLineSearch((char **)http_encoding_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)))
+        arrLineSearch((char **)http_encoding_arr, sizeof(http_encoding_arr) / sizeof(char *), (char *)(s)))
 
 #define HTTP_SUPPORTS_ENCODING(e) (bool)(                                                                                              \
         arrLineSearch((char **)http_encoding_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)) == -1)
