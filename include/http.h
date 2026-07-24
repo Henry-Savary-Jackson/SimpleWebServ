@@ -2,7 +2,6 @@
 
 #include "cc_deque.h"
 #include "cc_hashtable.h"
-#include "memory/cc_dynamic_pool.h"
 #include <asm-generic/errno-base.h>
 #include <utils.h>
 

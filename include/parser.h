@@ -1,6 +1,5 @@
 #pragma once
 
-#include "cc_array.h"
 #include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "cc_pqueue.h"
@@ -54,6 +53,9 @@ int sendBodyChunks(int connfd, HTTPResponse* response, int maxChunkSize );
 /*
  *
  */
+#define ENCODING_STR_MAX_SIZE 64
+#define MIMETYPE_STR_MAX_SIZE 64
+#define DEFAULT_Q_VALUE 1.0f
 
 CC_PQueue* decodeQualityValues(CC_Deque* teList, void* (*decodeFunc)(char*), int (*cmp)(const void*, const void*));
 CC_PQueue* decodeAcceptEncodings(CC_Deque* teList);

@@ -12,3 +12,4 @@ set(CMAKE_BUILD_TYPE Debug)
 
 add_library(httplib STATIC http.c )
 target_include_directories( httplib PUBLIC ../../include)
+target_include_directories( httplib  PUBLIC ../../lib/collectc/src/include)

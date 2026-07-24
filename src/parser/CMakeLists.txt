@@ -10,7 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(parser STATIC parser.c )
+add_library(parser STATIC parser.c chunked.c compression.c encoding.c qualityvalues.c mimetype.c )
 target_include_directories( parser PUBLIC ../../include)
-
-
+target_include_directories( parser PUBLIC ../../lib/collectc/src/include)

@@ -10,5 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(utilslib STATIC utils.c )
+add_library(utilslib STATIC utils.c paths.c threadpool.c )
 target_include_directories( utilslib PUBLIC ../../include)
+target_include_directories( utilslib  PUBLIC ../../lib/collectc/src/include)
