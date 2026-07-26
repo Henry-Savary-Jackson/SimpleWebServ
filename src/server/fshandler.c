@@ -337,67 +337,70 @@ int handleTransferCodingRequest(FILE *file,
                                 FileSystemHandler *handler,
                                 int connfd)
 {
-    int ret = 0;
     switch (request->transferEncoding)
     {
     case CHUNKED:
         return handleChunkedTransferCoding(file, request, handler, connfd);
     default:
-        ret = scanBody(request);
+        return decompressBody(request, request->transferEncoding);
+    }
+}
+
+int handleDELETEFile(Path *path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    if (request->contentLength > 0)
+    {
+        scanBody(request);
+    }
+
+    int ret = 0;
+    char pathStr[PATH_MAX];
+    pathToStr(path, pathStr);
+
+    if (access(pathStr, F_OK))
+    {
+        response->statusCode = HTTP_NOT_FOUND;
+        const char *resp = "NOT FOUND";
+        setResponseBody(response, resp, strlen(resp));
+        return -1;
+    }
+
+    struct stat stat_res;
+
+    stat(pathStr, &stat_res);
+
+    bool isDir = S_ISDIR(stat_res.st_mode);
+    if (isDir)
+    {
+        return rmdir(pathStr);
+    }
+    return unlink(pathStr);
+}
+
+
+int handleRequestContentEncoding(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    char *newBodyPtr = NULL;
+    int newSize = 0;
+    int ret = 0;
+    switch (request->contentEncoding)
+    {
+    case GZIP:
+        ret = decode_gzip(request->body, request->contentLength, &newBodyPtr, &newSize);
         if (ret)
         {
             return ret;
         }
-        ret = decompressBody(request, request->transferEncoding);
         break;
-    }
-    return ret;
-}
-
-int handleDELETEFile(Path *path,
-                   HTTPRequest *request,
-                   HTTPResponse *response,
-                   FileSystemHandler *handler,
-                   int connfd)
-{
-    char pathStr[PATH_MAX];
-    pathToStr(path, pathStr);
-    if (!access(pathStr, F_OK)){
-
-        struct stat stat_res;
-
-        stat(pathStr,&stat_res );
-
-        bool isDir = S_ISDIR(stat_res.st_mode);
-        if (isDir){
-            return rmdir(pathStr);
+    case DEFLATE:
+        ret = decode_zlib(request->body, request->contentLength, &newBodyPtr, &newSize);
+        if (ret)
+        {
+            return ret;
         }
-        return unlink(pathStr);
-    }
-    response->statusCode = HTTP_NOT_FOUND;
-    return -1;
-}
-
-
-int handleRequestContentEncoding(HTTPRequest* request, HTTPResponse* response, FileSystemHandler* handler, int connfd){
-    char* newBodyPtr = NULL;
-    int newSize = 0;
-    int ret = 0;
-    switch (request->contentEncoding){
-        case GZIP:
-            ret = decode_gzip(request->body , request->contentLength, &newBodyPtr, &newSize);
-            if (ret){
-                return ret;
-            }
-            break;
-        case DEFLATE:
-            ret = decode_zlib(request->body , request->contentLength, &newBodyPtr, &newSize);
-            if (ret){
-                return ret;
-            }
-            break;
-        default:
-            return 0;
+        break;
+    default:
+        return 0;
     }
 
     request->body = newBodyPtr;
@@ -425,12 +428,6 @@ int handlePOSTFile(Path *path,
 
             switch (errno)
             {
-            case EISDIR:
-                ret = mkdir(pathStr, 7);
-                if (ret){
-                    goto closefile;
-                }
-                break;
             case EINTR:
                 // process was just handling a signal, unlikely to happen
                 tryAgain = true;
@@ -440,47 +437,67 @@ int handlePOSTFile(Path *path,
             }
         }
     } while (openedFile == NULL);
+
     if (!openedFile)
     {
         // still null, it failed, send response back
         response->statusCode = HTTP_SERVER_ERROR;
         ret = -1;
-        goto closefile;
     }
 
-    if (chooseServerTransferCoding(request, response, handler, connfd))
+    if (!ret && chooseServerTransferCoding(request, response, handler, connfd))
     {
+        response->statusCode = HTTP_BAD_REQUEST;
         ret = -1;
+    }
+
+    // always make sure to recv the entire body even if there is an error
+    if (request->contentLength > 0 && request->transferEncoding != CHUNKED)
+    {
+        scanBody(request);
+    }
+
+    if (ret)
+    {
         goto closefile;
     }
 
-    ret = handleTransferCodingRequest(openedFile, request, response, handler, connfd);
-
-    if (ret == 0)
+    if (!ret)
     {
-        ret = handleRequestContentEncoding(request, response, handler, connfd);
-        if (ret){
-            goto closefile;
-        }
-        if (request->contentLength ==0){
-            goto makedir;
-        }
-        // if you didnt using chunked, then start writing the final body
-        ret = writeToFile(openedFile, request->body, request->contentLength);
+        ret = handleTransferCodingRequest(openedFile, request, response, handler, connfd);
     }
+
     if (ret > 0)
     {
-        // you chunked the writing to the file
         ret = 0;
+        goto closefile;
     }
 
-closefile:
-    fclose(openedFile);
-    return ret;
+    if (ret)
+    {
+        response->statusCode = HTTP_BAD_REQUEST;
+        goto closefile;
+    }
 
-makedir:
-    unlink(pathStr);
-    return mkdir(pathStr, 7);
+    if (request->contentLength == 0)
+    {
+        unlink(pathStr);
+        ret = mkdir(pathStr, 7);
+        goto closefile;
+    }
+
+    ret = handleRequestContentEncoding(request, response, handler, connfd);
+    if (ret)
+    {
+        goto closefile;
+    }
+    // if you didnt using chunked, then start writing the final body
+    ret = writeToFile(openedFile, request->body, request->contentLength);
+
+closefile:
+    if (openedFile)
+        fclose(openedFile);
+    return ret;
 }
 
 int sendBodyGETChunked(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
@@ -638,7 +655,6 @@ int sendBodyGET(FILE *file, HTTPResponse *response, FileSystemHandler *handler, 
     encodeResponseBody(response, &outBuffer);
 
     return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
-    ;
 }
 
 int handleGETFile(Path *path,
@@ -648,6 +664,11 @@ int handleGETFile(Path *path,
                   FileSystemHandler *handler,
                   int connfd)
 {
+    if (request->contentLength > 0)
+    {
+        scanBody(request);
+    }
+
     FILE *openedFile = NULL;
     int ret = 0;
     do
@@ -685,41 +706,48 @@ int handleGETFile(Path *path,
     {
         // still null, it failed, send response back
         handleNotFound(path, request, response, handler);
-        return -1;
+        ret = -1;
+        goto error;
     }
     // test if file exists
-    if (access(pathStr, R_OK) == -1)
+    if ( access(pathStr, F_OK) == -1)
     {
         // file doesnt exist or we cant read it
         handleNotFound(path, request, response, handler);
         ret = -1;
-        goto closeFile;
+        goto error;
     }
 
-    if (chooseContentType(pathStr, request, response, handler, connfd))
+    if ( chooseContentType(pathStr, request, response, handler, connfd))
     {
+        response->statusCode = HTTP_BAD_REQUEST;
         ret = -1;
-        goto closeFile;
+        goto error;
     }
 
     if (chooseContentEncoding(pathStr, request, response, handler, connfd))
     {
+        response->statusCode = HTTP_BAD_REQUEST;
         ret = -1;
-        goto closeFile;
+        goto error;
     }
 
     if (chooseClientTransferCoding(pathStr, request, response, handler, connfd))
     {
+        response->statusCode = HTTP_BAD_REQUEST;
         ret = -1;
-        goto closeFile;
+        goto error;
     }
 
-    ret = sendBodyGET(openedFile, response, handler, connfd);
-    // sendBody
+    sendBodyGET(openedFile, response, handler, connfd);
 
-closeFile:
-    fclose(openedFile);
+closefile:
+    if (openedFile)
+        fclose(openedFile);
     return ret;
+error:
+    sendResponse(response,  connfd);
+    goto closefile;
 }
 
 
