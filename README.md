@@ -6,10 +6,10 @@ A simple web server made (mostly, with the help of some libraries) from scratch 
 
 - [ ] HTTPS support
 - [ ] Support chunked, gzip, defalte transfer codings for sending and uploading data
-- [ ] Support for content negotiation via
-    - [ ] MIME types
-    - [ ] content-encoding
-    - [ ] method 
+- [x] Support for content negotiation via
+    - [x] MIME types
+    - [x] content-encoding
+    - [x] method 
 - [x] Server static files from webroot
 - [ ] Upload and remove files from webroot
 - [ ] Authentication and authorization for uploading files to webroot

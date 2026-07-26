@@ -17,38 +17,31 @@
 #include <zstd.h>
 
 
+void decodeQualityValueHandle(char *inStr, void *args)
+{
+    struct
+    {
+        CC_PQueue *pqueue;
+        void *(*decodeFunc)(char *);
+    } *arg_list = args;
+
+    void *qv = arg_list->decodeFunc(inStr);
+    if (qv)
+    {
+        cc_pqueue_push(arg_list->pqueue, qv);
+    }
+}
 
 
 void decodeQualityValueString(char *qvString, CC_PQueue *pqueue, void *(*decodeFunc)(char *))
 {
-    int strLen = strlen(qvString);
-    char currentString[strLen];
+    struct {
+        CC_PQueue* pqueue;
+        void *(*decodeFunc)(char *);
+    } args = {.pqueue =pqueue, .decodeFunc=decodeFunc};
 
-    int index = 0;
-    int consumedIndex = 0;
-    int writeIndex = 0;
-    while (index < strLen + 1)
-    {
-        char c = qvString[index];
-        index++;
-        if (c == ',' || c == 0)
-        {
-            currentString[writeIndex] = 0;
-            // hande
-            void *qv = decodeFunc(currentString);
-            if (qv)
-            {
-                // error
-                cc_pqueue_push(pqueue, qv);
-            }
-            writeIndex = 0;
-            continue;
-        }
-        currentString[writeIndex] = c;
-        writeIndex++;
-    }
+    tokenize(qvString, ',', decodeQualityValueHandle, (void*)&args);
 }
-
 
 CC_PQueue *decodeQualityValues(CC_Deque *teList, void *(*decodeFunc)(char *), int (*cmp)(const void *, const void *))
 {

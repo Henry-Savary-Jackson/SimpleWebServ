@@ -167,18 +167,33 @@ void handleConnection(int connfd, Server *server)
         HTTPResponse response;
         initHTTPResponse(&response);
 
-        int result = scanRequest(connfd, &request, &keepAlive, &statusCode);
-        response.statusCode = statusCode;
-        setRequest(&response, &request);
+        HTTPStream inStream;
+        initHTTPStream(&inStream, connfd);
+        request.inputStream = &inStream;
 
+        int result = scanFirstLine( &request);
+        if (result == -1){
+            statusCode = HTTP_BAD_REQUEST;
+            goto send_error_resp;
+        }
+
+        result = scanHeaders(&request);
+
+        if (result == -1){
+            statusCode = HTTP_BAD_REQUEST;
+            goto send_error_resp;
+        }
+
+        result = prepareHTTPRequestMetadata(&request,&statusCode, &keepAlive  );
 
         if (result == -1)
         {
             printf("%d", statusCode);
-            sendResponse(&response, connfd);
-            goto free_code;
+            statusCode = HTTP_BAD_REQUEST;
+            goto send_error_resp;
         }
 
+        setRequest(&response, &request);
 
         // choose a request handler that matches the url endpoint the most
         RequestHandler *handler = longestPrefixMatch(&server->router, &request);
@@ -186,10 +201,9 @@ void handleConnection(int connfd, Server *server)
             // 404 if no handler found
 
             const char * resp = "404 Not found!";
-            response.statusCode = HTTP_NOT_FOUND;
+            statusCode = HTTP_NOT_FOUND;
             setResponseBody(&response, resp, strlen(resp));
-            sendResponse(&response, connfd);
-            goto free_code;
+            goto send_error_resp;
         }
         // if a handler is found call the handler function that will decide how to mofidy the request
         // and send data back via TCP to the client
@@ -201,6 +215,11 @@ void handleConnection(int connfd, Server *server)
             freeHTTPRequest(&request);
             freeHTTPResponse(&response);
             arena_reset(&arena);
+            return ;
+        send_error_resp:
+            response.statusCode = statusCode;
+            sendResponse(&response, connfd);
+            goto free_code;
     }
 }
 

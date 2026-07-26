@@ -3,6 +3,7 @@
 #include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "cc_pqueue.h"
+#include "cc_queue.h"
 #include "http.h"
 #include "utils.h"
 #include <magic.h>
@@ -28,18 +29,25 @@ typedef struct {
 
 extern thread_local magic_t magic;
 
-int scanRequest(int connfd, HTTPRequest *request, bool *keepAliv, int* status) ;
+int scanFirstLine( HTTPRequest *request);
+int scanHeaders(HTTPRequest *request);
+int prepareHTTPRequestMetadata(HTTPRequest *request, int *status, bool* keepAlive);
+int scanBody(HTTPRequest *request);
+int decompressBody(HTTPRequest *request, enum http_encoding encoding);
+int scanRequest(HTTPRequest *request, bool *keepAliv, int* status) ;
 
 int sendResponse(HTTPResponse *response, int connfd) ;
-int encodeHeaders(CC_HashTable* headers, GrowingBuffer* buffer) ;
+int encodeHeaders(HTTPResponse *response, GrowingBuffer* buffer) ;
 int encodeResponseBody(HTTPResponse* response, GrowingBuffer* buffer) ;
-int prepareHTTPResponseMetadata(HTTPResponse* response, GrowingBuffer* buffer);
-int prepareResponseBody(HTTPResponse* response, GrowingBuffer* outBuffer);
+int prepareHTTPResponseStatusLine(HTTPResponse* response, GrowingBuffer* buffer);
+int prepareHTTPResponseMetadata(HTTPResponse* response);
+int prepareResponseBody(HTTPResponse* response);
+int compressReponseBody(HTTPResponse *response, enum http_encoding encoding);
 
 
 /* Chunked body reading
 */
-int readBodyChunked(HTTPStream* stream, HTTPRequest* request);
+int readBodyChunked(HTTPRequest* request);
 enum http_stream_status readNextChunk(HTTPStream* stream, char** out,int* size);
 enum http_stream_status readTrailerSection(HTTPStream* stream, CC_HashTable* trailerParams);
 
@@ -65,6 +73,8 @@ void *decodeSingleEncodingQualityValue(char *qvString);
 
 int decideContentEncoding(CC_PQueue *encqueue, enum http_encoding* chosenEncoding);
 void setTransferEncoding(HTTPResponse* response, enum http_encoding encoding);
+int decideTransferEncoding(CC_PQueue *encqueue, enum http_encoding *chosenEncoding);
+void decodeTransferCodingString(char *qvString, CC_Queue **queue);
 
 int decideContentType(CC_PQueue* ctqueue, char* actualMimetype, char** decidedMimetype);
 void setContentType(HTTPResponse* response, char* mimetype);
@@ -85,5 +95,5 @@ int decode_zlib(char *data, int inSize, char **output, int *outSize);
 int encode_gzip(char *data, int inSize, char **output, int *outSize);
 int decode_gzip(char *data, int inSize, char **output, int *outSize);
 
-int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk);
+int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk, int outChunkSize, bool isEOF);
 int inflateChunk(z_streamp strm, int outSize, char *outChunk);

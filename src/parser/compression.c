@@ -1,12 +1,13 @@
 #include "server.h"
-#include <zconf.h>
 #include <parser.h>
 #include <utils.h>
+#include <zconf.h>
 #include <zlib.h>
 
 int encode_zlib(char *data, int inSize, char **output, int *outSize)
 {
-    uLongf newSize = compressBound(inSize);;
+    uLongf newSize = compressBound(inSize);
+    ;
     *output = custom_alloc(newSize);
     int result = compress((Bytef *)*output, &newSize, (const Bytef *)data, (uLong)inSize);
     switch (result)
@@ -90,15 +91,14 @@ int encode_gzip(char *data, int inSize, char **output, int *outSize)
     return 0;
 }
 
-int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk)
+int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk, int outChunkSize, bool isEOF)
 {
     strm->next_in = (Bytef *)chunk;
-    strm->avail_in = chunkSize;
-    strm->avail_out = chunkSize;
+    strm->avail_out = outChunkSize;
     strm->next_out = (Bytef *)outChunk;
-    int ret = deflate(strm, Z_NO_FLUSH);
+    int ret = deflate(strm, isEOF?Z_FINISH : Z_SYNC_FLUSH );
     assert(ret != Z_STREAM_ERROR);
-    return chunkSize - (int)strm->avail_out;
+    return outChunkSize - (int)strm->avail_out;
 }
 
 
@@ -151,6 +151,7 @@ int decode_zstream(z_streamp strm, char **output, int *outSize)
     inflateEnd(strm);
     return 0;
 }
+
 
 int decode_gzip(char *data, int inSize, char **output, int *outSize)
 {

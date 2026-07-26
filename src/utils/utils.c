@@ -88,3 +88,27 @@ inline char separator()
     return '/';
 #endif
 }
+
+void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args)
+{
+    int strLen = strlen(inStr);
+    char currentString[strLen];
+
+    int index = 0;
+    int consumedIndex = 0;
+    int writeIndex = 0;
+    while (index < strLen + 1)
+    {
+        char c = inStr[index];
+        index++;
+        if (c == token || c == 0)
+        {
+            currentString[writeIndex] = 0;
+            handle(currentString, args);
+            writeIndex = 0;
+            continue;
+        }
+        currentString[writeIndex] = c;
+        writeIndex++;
+    }
+}

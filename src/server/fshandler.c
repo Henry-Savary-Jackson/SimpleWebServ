@@ -1,5 +1,7 @@
+#include "cc_common.h"
 #include "cc_deque.h"
 #include "cc_pqueue.h"
+#include "cc_queue.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
 #include "parser.h"
@@ -16,6 +18,8 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <zconf.h>
+#include <zlib.h>
 
 #define FS_CHUNK_SIZE 2 << 12 // 4 kb
 
@@ -60,15 +64,16 @@ int prefixMatchFSHandler(HTTPRequest *request, void *handler)
 
 int handleDirectory(Path *fullPath, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler)
 {
-    switch (request->method) {
-        case GET:
-            addToPath(fullPath, "index.html");
-            return  0;
-        default:
-            response->statusCode  =HTTP_FORBIDDEN;
-            const char * msg = "Is a directory!";
-            setResponseBody(response, msg, strlen(msg));
-            return -1;
+    switch (request->method)
+    {
+    case GET:
+        addToPath(fullPath, "index.html");
+        return 0;
+    default:
+        response->statusCode = HTTP_FORBIDDEN;
+        const char *msg = "Is a directory!";
+        setResponseBody(response, msg, strlen(msg));
+        return -1;
     }
     // append
     return 0;
@@ -78,7 +83,7 @@ int handleNotFound(Path *fullPath, HTTPRequest *request, HTTPResponse *response,
 {
     response->statusCode = HTTP_NOT_FOUND;
     const char *respStr = "Not Found!";
-    response->body = custom_strdup(respStr);
+    response->body = custom_strdup((char *)respStr);
     response->contentLength = (int)strlen(respStr);
     return -1;
 }
@@ -103,6 +108,8 @@ int chooseContentType(char *path, HTTPRequest *request, HTTPResponse *response, 
             // error
             response->statusCode = HTTP_NOT_ACCEPTED;
             response->contentType = "text/html";
+            response->contentEncoding = IDENTITY_ENCODING;
+            response->transferEncoding = IDENTITY_ENCODING;
             sendResponse(response, connfd);
             return -1;
         }
@@ -126,8 +133,11 @@ int chooseContentEncoding(char *path,
     if (acceptEncodings != NULL)
     {
         CC_PQueue *encodingPqueue = decodeAcceptEncodings(acceptEncodings);
-        assert(encodingPqueue);
-        response->contentEncoding = decideContentEncoding(encodingPqueue, &response->contentEncoding);
+        if (!encodingPqueue)
+        {
+            return -1;
+        }
+        int result = decideContentEncoding(encodingPqueue, &response->contentEncoding);
         if (response->contentEncoding == UNKNOWN_ENCODING)
         {
             response->statusCode = HTTP_NOT_ACCEPTED;
@@ -144,7 +154,238 @@ int chooseContentEncoding(char *path,
     return 0;
 }
 
-int handlePOSTFile(Path *path,char* pathStr, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+int chooseServerTransferCoding(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    char *transferCodingStr = getHeader(request->headers, TRANSFER_CODING_HEADER_NAME);
+    if (!transferCodingStr)
+    {
+        return 0;
+    }
+    request->transferEncoding = HTTP_ENCODING(transferCodingStr);
+    if (request->transferEncoding == UNKNOWN_ENCODING)
+    {
+        response->statusCode = HTTP_NOT_ACCEPTED;
+        return -1;
+    }
+    return 0;
+}
+
+int chooseClientTransferCoding(char *path,
+                               HTTPRequest *request,
+                               HTTPResponse *response,
+                               FileSystemHandler *handler,
+                               int connfd)
+{
+
+    CC_Deque *acceptTE = getHeaderValues(request->headers, TRANSFER_ENCODING_CLIENT_HEADER_NAME);
+    if (acceptTE != NULL)
+    {
+        CC_PQueue *encodingPqueue = decodeAcceptEncodings(acceptTE);
+        if (!encodingPqueue)
+        {
+            return -1;
+        }
+        if (decideTransferEncoding(encodingPqueue, &response->transferEncoding))
+        {
+            response->statusCode = HTTP_NOT_ACCEPTED;
+            response->contentType = "text/html";
+            response->contentEncoding = IDENTITY_ENCODING;
+            response->transferEncoding = IDENTITY_ENCODING;
+            sendResponse(response, connfd);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int writeToFile(FILE *file, char *chunk, int size)
+{
+    size_t totalWritten = 0;
+    size_t nwritten = 0;
+    while (totalWritten < size)
+    {
+        nwritten = fwrite(chunk + totalWritten, 1, size - totalWritten, file);
+        if (ferror(file) && errno == EINTR)
+        {
+            clearerr(file);
+        }
+        if (ferror(file))
+        {
+            return -1;
+        }
+        totalWritten += nwritten;
+    }
+    return 0;
+}
+
+int readFromFile(FILE *file, char *chunk, int size)
+{
+    size_t totalRead = 0;
+    size_t numRead = 0;
+    while (totalRead < size)
+    {
+        numRead = fread(chunk + totalRead, 1, size - totalRead, file);
+        if (feof(file))
+        {
+            return (int)(totalRead + numRead);
+        }
+        if (ferror(file) && errno == EINTR)
+        {
+            clearerr(file);
+        }
+        else if (ferror(file))
+        {
+            return -1;
+        }
+        totalRead += numRead;
+    }
+    return (int)totalRead;
+}
+
+
+int readChunksIntoFileDecompress(z_streamp strm,
+                                 FILE *file,
+                                 HTTPRequest *request,
+                                 FileSystemHandler *handler,
+                                 int connfd)
+{
+    char *chunk = NULL;
+    int chunkSize = 0;
+    char outputChunk[FS_CHUNK_SIZE];
+    enum http_stream_status status_strm;
+    while ((status_strm = readNextChunk(request->inputStream, &chunk, &chunkSize)) != TRAILER_CHUNK_REACEHED)
+    {
+        if (status_strm != RECV_SUCCESS)
+        {
+            // error
+            return -1;
+        }
+        strm->avail_in = chunkSize;
+        strm->next_in = (Bytef *)chunk;
+        while (strm->avail_in > 0)
+        {
+            int n_inflated = inflateChunk(strm, sizeof(outputChunk), outputChunk);
+            if (n_inflated < 0)
+            {
+                return n_inflated;
+            }
+            int ret = writeToFile(file, outputChunk, n_inflated);
+            if (ret)
+            {
+                return -1;
+            }
+        }
+    }
+    readTrailerSection(request->inputStream, NULL);
+    return 1;
+}
+
+
+int readChunksIntoFile(FILE *file, HTTPRequest *request, FileSystemHandler *handler, int connfd)
+{
+    char *chunk = NULL;
+    int chunkSize = 0;
+    enum http_stream_status status_strm;
+    while ((status_strm = readNextChunk(request->inputStream, &chunk, &chunkSize)) != TRAILER_CHUNK_REACEHED)
+    {
+        if (status_strm != RECV_SUCCESS)
+        {
+            // error/
+            return -1;
+        }
+        int ret = writeToFile(file, chunk, chunkSize);
+        if (ret)
+        {
+            return -1;
+        }
+    }
+    readTrailerSection(request->inputStream, NULL);
+    return 1;
+}
+int handleChunkedTransferCoding(FILE *file, HTTPRequest *request, FileSystemHandler *handler, int connfd)
+{
+    z_stream strm;
+    int ret = 0;
+    switch (request->contentEncoding)
+    {
+    case GZIP:
+        ret = decode_gzip_prepare(&strm);
+        if (ret != Z_OK)
+        {
+            return -1;
+        }
+        break;
+    case DEFLATE:
+        ret = decode_zlib_prepare(&strm);
+        if (ret != Z_OK)
+        {
+            return -1;
+        }
+        break;
+    default:
+        return readChunksIntoFile(file, request, handler, connfd);
+        // just normal
+    }
+    return readChunksIntoFileDecompress(&strm, file, request, handler, connfd);
+}
+
+int handleTransferCodingRequest(FILE *file,
+                                HTTPRequest *request,
+                                HTTPResponse *response,
+                                FileSystemHandler *handler,
+                                int connfd)
+{
+    int ret = 0;
+    switch (request->transferEncoding)
+    {
+    case CHUNKED:
+        return handleChunkedTransferCoding(file, request, handler, connfd);
+    default:
+        ret = scanBody(request);
+        if (ret)
+        {
+            return ret;
+        }
+        ret = decompressBody(request, request->transferEncoding);
+        break;
+    }
+    return ret;
+}
+
+
+int handleRequestContentEncoding(HTTPRequest* request, HTTPResponse* response, FileSystemHandler* handler, int connfd){
+    char* newBodyPtr = NULL;
+    int newSize = 0;
+    int ret = 0;
+    switch (request->contentEncoding){
+        case GZIP:
+            ret = decode_gzip(request->body , request->contentLength, &newBodyPtr, &newSize);
+            if (ret){
+                return ret;
+            }
+            break;
+        case DEFLATE:
+            ret = decode_zlib(request->body , request->contentLength, &newBodyPtr, &newSize);
+            if (ret){
+                return ret;
+            }
+            break;
+        default:
+            return 0;
+    }
+
+    request->body = newBodyPtr;
+    request->contentLength = newSize;
+
+    return 0;
+}
+
+int handlePOSTFile(Path *path,
+                   char *pathStr,
+                   HTTPRequest *request,
+                   HTTPResponse *response,
+                   FileSystemHandler *handler,
+                   int connfd)
 {
     FILE *openedFile = NULL;
     int ret = 0;
@@ -169,7 +410,7 @@ int handlePOSTFile(Path *path,char* pathStr, HTTPRequest *request, HTTPResponse 
                 break;
             }
         }
-    } while (openedFile ==NULL);
+    } while (openedFile == NULL);
     if (!openedFile)
     {
         // still null, it failed, send response back
@@ -178,20 +419,198 @@ int handlePOSTFile(Path *path,char* pathStr, HTTPRequest *request, HTTPResponse 
         goto closefile;
     }
 
-    size_t nwritten = fwrite( request->body, 1, request->contentLength, openedFile);
-    if (nwritten < 0){
-        // errro
-        response->statusCode = HTTP_SERVER_ERROR;
+    if (chooseServerTransferCoding(request, response, handler, connfd))
+    {
         ret = -1;
         goto closefile;
     }
 
-    closefile:
-        fclose(openedFile);
-        return ret;
+    ret = handleTransferCodingRequest(openedFile, request, response, handler, connfd);
+
+    if (ret == 0)
+    {
+        ret = handleRequestContentEncoding(request, response, handler, connfd);
+        if (ret){
+            goto closefile;
+        }
+        // if you didnt using chunked, then start writing the final body
+        ret = writeToFile(openedFile, request->body, request->contentLength);
+    }
+    if (ret > 0)
+    {
+        // you chunked the writing to the file
+        ret = 0;
+    }
+
+closefile:
+    fclose(openedFile);
+    return ret;
 }
 
-int handleGETFile(Path *path, char* pathStr, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+int sendBodyGETChunked(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    char chunk[FS_CHUNK_SIZE];
+    int n_read = 0;
+    while (!feof(file))
+    {
+
+        n_read = readFromFile(file, chunk, sizeof(chunk));
+        int end = feof(file);
+        if (n_read < 0)
+        {
+            return n_read;
+        }
+        int sendRet = sendChunk(connfd, chunk, n_read);
+        if (sendRet < 0)
+        {
+            return sendRet;
+        }
+    }
+    sendFinalChunk(connfd);
+    return 0;
+}
+
+int sendBodyGETChunkedCompressed(z_stream *strm,
+                                 FILE *file,
+                                 HTTPResponse *response,
+                                 FileSystemHandler *handler,
+                                 int connfd)
+{
+    char chunk[FS_CHUNK_SIZE];
+    char outChunk[FS_CHUNK_SIZE];
+    int n_read = 0;
+    int n_total_read = 0;
+    int total_size = 0;
+    int isEOF = 0;
+    while (!isEOF)
+    {
+        n_read = readFromFile(file, chunk, sizeof(chunk));
+        if (n_read < 0)
+        {
+            return n_read;
+        }
+        isEOF = feof(file);
+
+        strm->avail_in = n_read;
+        n_total_read += n_read;
+        while (strm->avail_in > 0)
+        {
+            int n_compressed = compressChunk(strm, chunk, n_read, outChunk, sizeof(outChunk), (bool)isEOF);
+            if (n_compressed < 0)
+            {
+                return n_compressed;
+            }
+            int sendRet = sendChunk(connfd, outChunk, n_compressed);
+            total_size += n_compressed;
+            if (sendRet < 0)
+            {
+                return sendRet;
+            }
+        }
+    }
+    sendFinalChunk(connfd);
+    return 0;
+}
+
+int handleSendingBodyChunked(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    z_stream strm;
+    int ret_prep = 0;
+    int send_res = 0;
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    switch (response->contentEncoding)
+    {
+    case GZIP:
+        ret_prep = encode_gzip_prepare(&strm);
+        break;
+    case DEFLATE:
+        ret_prep = encode_zlib_prepare(&strm);
+        break;
+    default:
+        send_res = sendBodyGETChunked(file, response, handler, connfd);
+        goto check_end;
+    }
+    if (ret_prep)
+    {
+        return ret_prep;
+    }
+    send_res = sendBodyGETChunkedCompressed(&strm, file, response, handler, connfd);
+    deflateEnd(&strm);
+
+check_end:
+    if (send_res)
+    {
+        return send_res;
+    }
+    return 0;
+}
+
+int readFileIntoBody(FILE *file, HTTPResponse *response, FileSystemHandler *handler)
+{
+    GrowingBuffer bodyBuffer;
+    char chunk[FS_CHUNK_SIZE];
+    initGrowingBuffer(&bodyBuffer, FS_CHUNK_SIZE);
+    int ret = 0;
+
+    while (!feof(file))
+    {
+        int numRead = readFromFile(file, chunk, sizeof(chunk));
+        if (numRead < 0)
+        {
+            return numRead;
+        }
+        appendGrowingBuffer(&bodyBuffer, chunk, numRead);
+    }
+    response->body = bodyBuffer.ptr;
+    response->contentLength = bodyBuffer.size;
+    return 0;
+}
+
+int sendBodyGET(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
+    GrowingBuffer outBuffer;
+    initGrowingBuffer(&outBuffer, HTTP_STREAM_INIT_BUFFER);
+
+    int ret = 0;
+
+    prepareHTTPResponseStatusLine(response, &outBuffer);
+
+    // if gzip
+    switch (response->transferEncoding)
+    {
+    case CHUNKED:
+        prepareHTTPResponseMetadata(response);
+        encodeHeaders(response, &outBuffer);
+        sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
+        return handleSendingBodyChunked(file, response, handler, connfd);
+    case GZIP:
+    case DEFLATE:
+        readFileIntoBody(file, response, handler);
+        prepareResponseBody(response);
+        compressReponseBody(response, response->transferEncoding);
+        break;
+    default:
+        readFileIntoBody(file, response, handler);
+        prepareResponseBody(response);
+        break;
+    }
+
+    prepareHTTPResponseMetadata(response);
+    encodeHeaders(response, &outBuffer);
+    encodeResponseBody(response, &outBuffer);
+
+    return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
+    ;
+}
+
+int handleGETFile(Path *path,
+                  char *pathStr,
+                  HTTPRequest *request,
+                  HTTPResponse *response,
+                  FileSystemHandler *handler,
+                  int connfd)
 {
     FILE *openedFile = NULL;
     int ret = 0;
@@ -241,15 +660,26 @@ int handleGETFile(Path *path, char* pathStr, HTTPRequest *request, HTTPResponse 
         goto closeFile;
     }
 
-    GrowingBuffer buffer;
-    initGrowingBuffer(&buffer, FS_CHUNK_SIZE << 1);
-    char chunk[FS_CHUNK_SIZE];
-    size_t numRead = 0;
-    while (!feof(openedFile) && ((numRead = fread(chunk, sizeof(char), sizeof(chunk), openedFile)) != 0))
+    if (chooseContentType(pathStr, request, response, handler, connfd))
     {
-        appendGrowingBuffer(&buffer, chunk, numRead);
+        ret = -1;
+        goto closeFile;
     }
-    setResponseBody(response, buffer.ptr, buffer.size);
+
+    if (chooseContentEncoding(pathStr, request, response, handler, connfd))
+    {
+        ret = -1;
+        goto closeFile;
+    }
+
+    if (chooseClientTransferCoding(pathStr, request, response, handler, connfd))
+    {
+        ret = -1;
+        goto closeFile;
+    }
+
+    ret = sendBodyGET(openedFile, response, handler, connfd);
+    // sendBody
 
 closeFile:
     fclose(openedFile);
@@ -261,38 +691,20 @@ int tryFiles(Path *path, HTTPRequest *request, HTTPResponse *response, FileSyste
 {
     char pathStr[PATH_MAX];
     int ret = 0;
-    switch (request->method){
-        case GET:
-            ret =handleGETFile(path,pathStr, request, response,handler, connfd);
-            break;
-        case POST:
-            ret = handlePOSTFile(path,pathStr, request, response,handler, connfd);
-            break;
-        default:
-            response->statusCode = HTTP_METHOD_UNSUPPORTED;
-            break;
-    }
-
-
-    // check if there are not
-
-    if (chooseContentType(pathStr, request, response, handler, connfd))
+    switch (request->method)
     {
-        return -1;
+    case GET:
+        return handleGETFile(path, pathStr, request, response, handler, connfd);
+    case POST:
+        ret = handlePOSTFile(path, pathStr, request, response, handler, connfd);
+        break;
+    default:
+        response->statusCode = HTTP_METHOD_UNSUPPORTED;
+        break;
     }
-
-    if (chooseContentEncoding(pathStr, request, response, handler, connfd))
-    {
-        return -1;
-    }
-
-    // write contents to body
-
-    response->statusCode = HTTP_OK;
+    response->version = "1.1";
     sendResponse(response, connfd);
-    // file is sucessfully found
-
-    return 0;
+    return ret;
 }
 
 int FSHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)

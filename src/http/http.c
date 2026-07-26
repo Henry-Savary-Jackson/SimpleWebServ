@@ -57,9 +57,12 @@ const char *http_encoding_arr[HTTP_NUM_SUPPORTED_ENCODINGS + 2] = {
     GZIP_HEADER_VALUE,
     ZLIB_HEADER_VALUE,
     IDENTITY_HEADER_VALUE,
+    CHUNKED_HEADER_VALUE,
     WILDCARD_HEADER_VALUE,
     ENCODING_UNKNOWN_STR,
 };
+
+
 const char *http_content_type_arr[HTTP_NUM_SUPPORTED_CONTENT_TYPE + 1] = {
     MULTIPART_FORMDATA_VALUE,
     TEXT_HTML_VALUE,
@@ -146,6 +149,7 @@ enum http_stream_status consumeBody(HTTPStream *stream, char **out, int contentL
     }
     *out = stream->ptr + stream->consumedoffset;
     stream->consumedoffset += contentLength;
+    stream->head = stream->consumedoffset;
     return RECV_SUCCESS;
 }
 
@@ -206,6 +210,8 @@ int initHTTPRequest(HTTPRequest *request)
     request->version = NULL;
     request->contentLength = 0;
     request->body = NULL;
+    request->transferEncoding = IDENTITY_ENCODING;
+    request->contentEncoding = IDENTITY_ENCODING;
     initPath(&request->uriPath);
 
     CC_HashTableConf htConf;
@@ -234,10 +240,12 @@ void freeHTTPRequest(HTTPRequest *request)
 int initHTTPResponse(HTTPResponse *response)
 {
     response->contentLength = 0;
-    response->statusCode = 0;
+    response->statusCode = HTTP_OK;
     response->body = NULL;
     response->headers = NULL;
     response->request = NULL;
+    response->contentEncoding = IDENTITY_ENCODING;
+    response->transferEncoding = IDENTITY_ENCODING;
 
     CC_HashTableConf htConf;
     configureHTTPDict(&htConf);

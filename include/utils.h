@@ -13,14 +13,6 @@ typedef struct
 
 typedef struct
 {
-    void *data;
-    void *next;
-    void* prev;
-} Node;
-
-
-typedef struct
-{
     bool isRoot;
     CC_Deque* directories;
 } Path;
@@ -42,6 +34,8 @@ void copyString(String *dst, char *src);
 char *allocStringArena(void *dict, char *value);
 void copyStringToPool(char ** dst, char* src, CC_DynamicPool* pool);
 int arrLineSearch(char **arr, int size, char *key);
+
+void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args);
 
 #define HTTP_METHOD(s)                                                                                                 \
     (enum http_method)(arrLineSearch((char **)http_method_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)))
@@ -81,3 +75,5 @@ void addToPath(Path* path, char* dirname);
 void popFromPath(Path* path);
 void removePrefix(Path *path, Path *prefix);
 void sanitizePath(Path* path);
+
+int sendDataTCP(int connfd, char * chunk , int size);

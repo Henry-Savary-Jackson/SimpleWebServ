@@ -1,6 +1,10 @@
 #include "cc_common.h"
+#include "cc_deque.h"
+#include "cc_list.h"
 #include "cc_pqueue.h"
+#include "cc_queue.h"
 #include "server.h"
+#include "utils.h"
 #include <http.h>
 #include <linux/limits.h>
 #include <magic.h>
@@ -41,22 +45,30 @@ void setTransferEncoding(HTTPResponse *response, enum http_encoding encoding)
 int decideContentEncoding(CC_PQueue *encqueue, enum http_encoding *chosenEncoding)
 {
     EncodingQualityValue *topChoice;
-    enum cc_stat stat;
-    while ((stat = cc_pqueue_pop(encqueue, (void **)&topChoice)) == CC_OK)
+    enum cc_stat stat = cc_pqueue_pop(encqueue, (void **)&topChoice);
+    if (stat != CC_OK)
     {
-        // if the encoding string is unknown
-        if (topChoice->encoding == WILDCARD)
-        {
-            return DEFAULT_ENCODING;
-        }
-        if (topChoice->encoding != UNKNOWN_ENCODING)
-        {
-            return topChoice->encoding;
-        }
+        goto error;
     }
+
+    switch (topChoice->encoding)
+    {
+    case WILDCARD:
+        *chosenEncoding = DEFAULT_ENCODING;
+        return 0;
+    case UNKNOWN_ENCODING:
+        // chunked is only for TE Headers
+        goto error;
+    case CHUNKED:
+        goto error;
+    default:
+        *chosenEncoding = topChoice->encoding;
+        return 0;
+    }
+    return 0;
+error:
     *chosenEncoding = UNKNOWN_ENCODING;
     return -1;
-    return 0;
 }
 
 int cmpEncodingQV(const void *ptr1, const void *ptr2)
@@ -77,4 +89,59 @@ int cmpEncodingQV(const void *ptr1, const void *ptr2)
 CC_PQueue *decodeAcceptEncodings(CC_Deque *teList)
 {
     return decodeQualityValues(teList, decodeSingleEncodingQualityValue, cmpEncodingQV);
+}
+
+int decideTransferEncoding(CC_PQueue *encqueue, enum http_encoding *chosenEncoding)
+{
+    EncodingQualityValue *topChoice;
+    enum cc_stat stat = cc_pqueue_pop(encqueue, (void **)&topChoice);
+    if (stat != CC_OK)
+    {
+        goto error;
+    }
+
+    switch (topChoice->encoding)
+    {
+    case WILDCARD:
+        *chosenEncoding = DEFAULT_ENCODING;
+        return 0;
+    case UNKNOWN_ENCODING:
+        goto error;
+    default:
+        *chosenEncoding = topChoice->encoding;
+        return 0;
+    }
+    return 0;
+error:
+    *chosenEncoding = UNKNOWN_ENCODING;
+    return -1;
+}
+
+void addTransferEncodingToQueue(char *inStr, void *args)
+{
+
+    CC_Queue *queue = args;
+    char trimmedStr[strlen(inStr)];
+    int count = sscanf(inStr," %s ",trimmedStr);
+    assert(count == 1);
+    enum http_encoding *ptr = custom_alloc(sizeof(enum http_encoding));
+    if (ptr && *ptr != UNKNOWN_ENCODING)
+    {
+        // error
+        *ptr = HTTP_ENCODING(inStr);
+        cc_queue_enqueue(queue, ptr);
+    }
+}
+
+void decodeTransferCodingString(char *qvString, CC_Queue **queue)
+{
+    CC_QueueConf conf;
+    cc_queue_conf_init(&conf);
+    conf.mem_alloc = custom_alloc;
+    conf.mem_calloc = custom_calloc;
+    conf.mem_free = custom_free;
+
+    cc_queue_new_conf(&conf, queue);
+
+    tokenize(qvString, ',', addTransferEncodingToQueue, (void*)*queue);
 }

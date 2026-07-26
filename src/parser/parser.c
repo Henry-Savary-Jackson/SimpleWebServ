@@ -23,47 +23,33 @@
 #define INIT_BUFFER_SIZE 16
 #define METHOD_MAX_SIZE 16
 
+void handleQueryParam(char *inStr, void *args)
+{
+    int lineLength = (int)strlen(inStr);
+    HTTPRequest *request = args;
+    char key[lineLength];
+    char value[lineLength];
+    int count = sscanf(inStr, "%[^=]=%s", key, value);
+    if (count != 2)
+    {
+        perror("invalid query params");
+        return;
+    }
+    // add the dictionary
+    setQueryParam(request, key, value);
+}
+
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
 {
-    int consumedOffset = 0;
-    int length = (int)strlen(queryParams);
-    while (consumedOffset < length)
-    {
-        int readHead = consumedOffset;
-        while (queryParams[readHead] != '&' && length > readHead)
-        {
-            readHead++;
-        }
-        //
-        // null terminate
-        int lineLength = readHead - consumedOffset;
-        if (lineLength <= 0)
-        {
-            return -1;
-        }
-
-        queryParams[readHead] = 0;
-        char key[lineLength];
-        char value[lineLength];
-        int count = sscanf(queryParams + consumedOffset, "%[^=]=%s", key, value);
-        if (count != 2)
-        {
-            return -1;
-        }
-        // add the dictionary
-        setQueryParam(request, key, value);
-
-        consumedOffset = readHead + 1;
-    }
+    tokenize(queryParams, '&', handleQueryParam, (void*)request) ;
     return 0;
 }
 
-int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
+int scanFirstLine(HTTPRequest *request)
 {
-
     char *firstLine = NULL;
     int lineLength = 0;
-    enum http_stream_status status = readLine(stream, &lineLength, &firstLine);
+    enum http_stream_status status = readLine(request->inputStream, &lineLength, &firstLine);
     if (status != LF_REACHED)
     {
         return -1;
@@ -77,7 +63,7 @@ int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
     char method[METHOD_MAX_SIZE];
     char version[METHOD_MAX_SIZE];
 
-    uint count = sscanf(stream->ptr, "%15s %s HTTP/%s", method, location, version);
+    uint count = sscanf(request->inputStream->ptr, "%15s %s HTTP/%15s", method, location, version);
     if (count != 3)
     {
         return -1;
@@ -99,15 +85,16 @@ int scanFirstLine(HTTPStream *stream, HTTPRequest *request)
 
     request->version = custom_strdup(version);
 
+    stringToPath(&request->uriPath, request->uri);
     return 0;
 }
 
-int scanHeaders(HTTPStream *stream, HTTPRequest *request)
+int scanHeaders(HTTPRequest *request)
 {
     int lineLength = 0;
     char *line = NULL;
     enum http_stream_status streamStatus;
-    while ((streamStatus = readLine(stream, &lineLength, &line)) != EMPTY_LINE)
+    while ((streamStatus = readLine(request->inputStream, &lineLength, &line)) != EMPTY_LINE)
     {
         if (streamStatus != LF_REACHED)
         {
@@ -128,24 +115,56 @@ int scanHeaders(HTTPStream *stream, HTTPRequest *request)
     return 0;
 }
 
-int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
+int scanBody(HTTPRequest *request)
+{
+    // read body of message using content length
+    enum http_stream_status strStatus = consumeBody(request->inputStream, &request->body, request->contentLength);
+    if (strStatus != RECV_SUCCESS)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int decompressBody(HTTPRequest *request, enum http_encoding encoding)
+{
+    if (!request->body || request->contentLength <= 0)
+    {
+        return 0;
+    }
+    int ret = 0;
+    char *newPtr = NULL;
+    switch (encoding)
+    {
+    case GZIP:
+        ret = decode_gzip(request->body, request->contentLength, &newPtr, &request->contentLength);
+        if (ret)
+        {
+            return ret;
+        }
+        request->body = newPtr;
+        break;
+    case DEFLATE:
+        ret = decode_zlib(request->body, request->contentLength, &newPtr, &request->contentLength);
+        if (ret)
+        {
+            return ret;
+        }
+        request->body = newPtr;
+        break;
+    default:
+        break;
+    }
+    return ret;
+}
+
+
+int prepareHTTPRequestMetadata(HTTPRequest *request, int *status, bool* keepAlive)
 {
     char *contentLengthS = getHeader(request->headers, CONTENT_LENGTH_HEADER_NAME);
     char *contentEncodingS = getHeader(request->headers, CONTENT_ENCODING_HEADER_NAME);
 
     // CC_Deque *transferCodingValues = getHeaderValues(request->headers, TRANSFER_CODING_HEADER_NAME);
-
-    if (!strcmp(HTTP_METHOD_GET, HTTP_METHOD_STRING(request->method)) && !contentLengthS)
-    {
-        // ignore message body if a get request
-        return 0;
-    }
-    if (!contentLengthS)
-    {
-        *status = HTTP_CONTENT_LENGTH_REQUIRED;
-        return -1;
-        // read message body into request buffer
-    }
     if (!contentEncodingS)
     {
         request->contentEncoding = IDENTITY_ENCODING;
@@ -160,50 +179,19 @@ int scanBody(HTTPStream *stream, HTTPRequest *request, int *status)
         }
     }
 
-
-    char *contLengthSTemp; //temp
-    request->contentLength = (int)strtol(contentLengthS, &contLengthSTemp, 10);
-    // read body of message using content length
-
-    enum http_stream_status strStatus = consumeBody(stream, &request->body, request->contentLength);
-    if (strStatus != RECV_SUCCESS)
+    if (contentLengthS)
     {
-        return -1;
-    }
-
-    char *newPtr = NULL;
-    int ret = 0;
-    switch (request->contentEncoding)
-    {
-    case GZIP:
-        ret = decode_gzip(request->body, request->contentLength, &newPtr, &request->contentLength);
-        if (ret){
-            *status = HTTP_BAD_REQUEST;
-            return -1;
-        }
-        request->body = newPtr;
-        break;
-    case DEFLATE:
-        ret =decode_zlib(request->body, request->contentLength, &newPtr, &request->contentLength);
-        if (ret){
-            *status = HTTP_BAD_REQUEST;
-            return -1;
-        }
-        request->body = newPtr;
-        break;
-    default:
-        break;
+        const int base = 10;
+        request->contentLength = (int)strtol(contentLengthS, NULL, base);
     }
     return 0;
 }
 
-int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
+int scanRequest(HTTPRequest *request, bool *keepAlive, int *status)
 {
-    HTTPStream stream;
-    initHTTPStream(&stream, connfd);
 
     // parse the first line
-    int result = scanFirstLine(&stream, request);
+    int result = scanFirstLine(request);
     if (result)
     {
         *status = HTTP_BAD_REQUEST;
@@ -213,7 +201,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
 
     stringToPath(&request->uriPath, request->uri);
 
-    result = scanHeaders(&stream, request);
+    result = scanHeaders(request);
     if (result)
     {
         *status = HTTP_BAD_REQUEST;
@@ -221,19 +209,7 @@ int scanRequest(int connfd, HTTPRequest *request, bool *keepAlive, int *status)
     }
 
     // the Host header is required
-    char *hasHost = getHeader(request->headers, HOST_HEADER_NAME);
-    if (!hasHost)
-    {
-        *status = HTTP_BAD_REQUEST;
-        printf("Host header missing!");
-        goto error;
-    }
-    int ret = scanBody(&stream, request, status);
-    if (ret){
-        printf("Failed to read body");
-        goto error;
-    }
-    goto success;
+
 success:
     char *connect = getHeader(request->headers, CONNECTION_HEADER_NAME);
     *keepAlive = (connect && !strcmp(connect, "keep-alive"));
@@ -243,8 +219,7 @@ error:
     return -1;
 }
 
-
-int prepareHTTPResponseMetadata(HTTPResponse *response, GrowingBuffer *buffer)
+int prepareHTTPResponseStatusLine(HTTPResponse *response, GrowingBuffer *buffer)
 {
     char firstline[4096];
     int totalSize = 0;
@@ -257,40 +232,64 @@ int prepareHTTPResponseMetadata(HTTPResponse *response, GrowingBuffer *buffer)
 
     int firstLineLength = (int)strlen(firstline);
     appendGrowingBuffer(buffer, firstline, firstLineLength);
+    return 0;
+}
 
-
+int prepareHTTPResponseMetadata(HTTPResponse *response)
+{
     char contentLengthS[METHOD_MAX_SIZE];
     sprintf(contentLengthS, "%d", response->contentLength);
-    setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
-
-    if (response->contentLength > 0 &&response->contentEncoding != IDENTITY_ENCODING)
+    if (response->transferEncoding != CHUNKED){
+        setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
+    }
+    if (response->contentLength > 0 && response->contentEncoding != IDENTITY_ENCODING)
     {
         setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
         setHeader(response, CONTENT_ENCODING_HEADER_NAME, HTTP_ENCODING_STRING(response->contentEncoding));
     }
+    if (response->transferEncoding != IDENTITY_ENCODING)
+    {
+        setHeader(response, TRANSFER_CODING_HEADER_NAME, HTTP_ENCODING_STRING(response->transferEncoding));
+    }
+    response->version = "1.1";
 
     return 0;
 }
 
-
-int prepareResponseBody(HTTPResponse *response, GrowingBuffer *outBuffer)
+int compressReponseBody(HTTPResponse *response, enum http_encoding encoding)
 {
-    if (response->body && response->contentLength > 0)
+    if (!response->body || response->contentLength <= 0)
     {
-        char *newBodyPtr = NULL;
-        switch (response->contentEncoding)
-        {
-        case GZIP:
-            encode_gzip(response->body, response->contentLength, &newBodyPtr, &response->contentLength);
-            response->body = newBodyPtr;
-            break;
-        case DEFLATE:
-            encode_zlib(response->body, response->contentLength, &newBodyPtr, &response->contentLength);
-            response->body = newBodyPtr;
-            break;
-        default:
-            break;
-        }
+        return 0;
+    }
+    char *newBodyPtr = NULL;
+    int ret = 0;
+    int newSize = 0;
+    switch (encoding)
+    {
+    case GZIP:
+        ret = encode_gzip(response->body, response->contentLength, &newBodyPtr, &newSize);
+        break;
+    case DEFLATE:
+        ret = encode_zlib(response->body, response->contentLength, &newBodyPtr, &newSize);
+        break;
+    default:
+        return 0;
+    }
+    if (!ret)
+    {
+        response->body = newBodyPtr;
+        response->contentLength = newSize;
+    }
+    return ret;
+}
+
+int prepareResponseBody(HTTPResponse *response)
+{
+    int ret = compressReponseBody(response, response->contentEncoding);
+    if (ret)
+    {
+        return ret;
     }
     return 0;
 }
@@ -301,26 +300,28 @@ int sendResponse(HTTPResponse *response, int connfd)
 
     initGrowingBuffer(&outBuffer, INIT_BUFFER_SIZE);
 
-    prepareResponseBody(response, &outBuffer);
-    prepareHTTPResponseMetadata(response, &outBuffer);
+    prepareHTTPResponseStatusLine(response, &outBuffer);
+    prepareResponseBody(response);
+    prepareHTTPResponseMetadata(response);
 
-    encodeHeaders(response->headers, &outBuffer);
+    encodeHeaders(response, &outBuffer);
     encodeResponseBody(response, &outBuffer);
 
-    send(connfd, outBuffer.ptr, outBuffer.size, MSG_NOSIGNAL);
-
-    return 0;
+    return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
 }
 
-int encodeResponseBody(HTTPResponse* response, GrowingBuffer* buffer) {
-    if (response->body && response->contentLength > 0){
+int encodeResponseBody(HTTPResponse *response, GrowingBuffer *buffer)
+{
+    if (response->body && response->contentLength > 0)
+    {
         appendGrowingBuffer(buffer, response->body, response->contentLength);
     }
     return 0;
 }
 
-int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
+int encodeHeaders(HTTPResponse *response, GrowingBuffer *buffer)
 {
+    CC_HashTable *headers = response->headers;
     int numHeaders = (int)cc_hashtable_size(headers);
     struct cc_hashtable_iter iter;
     cc_hashtable_iter_init(&iter, headers);

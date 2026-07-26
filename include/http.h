@@ -30,15 +30,17 @@ enum http_method {GET=0, POST=1, PUT=2, DELETE=3, HEAD=4, OPTIONS=5, UNKNOWN_MET
 
 extern const char* http_method_arr[HTTP_NUM_SUPPORTED_METHODS+1] ;
 
-#define HTTP_NUM_SUPPORTED_ENCODINGS 3
+#define HTTP_NUM_SUPPORTED_ENCODINGS 4
 
-enum http_encoding {GZIP=0, DEFLATE=1, IDENTITY_ENCODING=2, WILDCARD=3 ,UNKNOWN_ENCODING=4};
+enum http_encoding {GZIP=0, DEFLATE=1, IDENTITY_ENCODING=2,CHUNKED=3,  WILDCARD=4 ,UNKNOWN_ENCODING=5};
 
 #define DEFAULT_ENCODING IDENTITY_ENCODING
+#define DEFAULT_TRANSFER_CODING UNKNOWN_ENCODING
 
 #define GZIP_HEADER_VALUE "gzip"
 #define ZLIB_HEADER_VALUE "deflate"
 #define IDENTITY_HEADER_VALUE "identity"
+#define CHUNKED_HEADER_VALUE "chunked"
 #define WILDCARD_HEADER_VALUE "*"
 #define ENCODING_UNKNOWN_STR "Unknown"
 
@@ -146,7 +148,7 @@ typedef struct {
   char *body;
   enum http_encoding contentEncoding; // done by client
   enum http_encoding transferEncoding; // done hop by hop
-
+  HTTPStream* inputStream;
 } HTTPRequest;
 
 typedef struct {
