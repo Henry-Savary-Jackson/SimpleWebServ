@@ -15,11 +15,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 #include <zconf.h>
 #include <zlib.h>
+
 
 #define FS_CHUNK_SIZE 2 << 12 // 4 kb
 
@@ -352,6 +354,30 @@ int handleTransferCodingRequest(FILE *file,
     return ret;
 }
 
+int handleDELETEFile(Path *path,
+                   HTTPRequest *request,
+                   HTTPResponse *response,
+                   FileSystemHandler *handler,
+                   int connfd)
+{
+    char pathStr[PATH_MAX];
+    pathToStr(path, pathStr);
+    if (!access(pathStr, F_OK)){
+
+        struct stat stat_res;
+
+        stat(pathStr,&stat_res );
+
+        bool isDir = S_ISDIR(stat_res.st_mode);
+        if (isDir){
+            return rmdir(pathStr);
+        }
+        return unlink(pathStr);
+    }
+    response->statusCode = HTTP_NOT_FOUND;
+    return -1;
+}
+
 
 int handleRequestContentEncoding(HTTPRequest* request, HTTPResponse* response, FileSystemHandler* handler, int connfd){
     char* newBodyPtr = NULL;
@@ -400,7 +426,10 @@ int handlePOSTFile(Path *path,
             switch (errno)
             {
             case EISDIR:
-                tryAgain = handleDirectory(path, request, response, handler) == 0;
+                ret = mkdir(pathStr, 7);
+                if (ret){
+                    goto closefile;
+                }
                 break;
             case EINTR:
                 // process was just handling a signal, unlikely to happen
@@ -433,6 +462,9 @@ int handlePOSTFile(Path *path,
         if (ret){
             goto closefile;
         }
+        if (request->contentLength ==0){
+            goto makedir;
+        }
         // if you didnt using chunked, then start writing the final body
         ret = writeToFile(openedFile, request->body, request->contentLength);
     }
@@ -445,6 +477,10 @@ int handlePOSTFile(Path *path,
 closefile:
     fclose(openedFile);
     return ret;
+
+makedir:
+    unlink(pathStr);
+    return mkdir(pathStr, 7);
 }
 
 int sendBodyGETChunked(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
@@ -697,6 +733,9 @@ int tryFiles(Path *path, HTTPRequest *request, HTTPResponse *response, FileSyste
         return handleGETFile(path, pathStr, request, response, handler, connfd);
     case POST:
         ret = handlePOSTFile(path, pathStr, request, response, handler, connfd);
+        break;
+    case DELETE:
+        ret = handleDELETEFile(path, request, response, handler, connfd);
         break;
     default:
         response->statusCode = HTTP_METHOD_UNSUPPORTED;
