@@ -41,7 +41,7 @@ void handleQueryParam(char *inStr, void *args)
 
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
 {
-    tokenize(queryParams, '&', handleQueryParam, (void*)request) ;
+    tokenize(queryParams, '&', handleQueryParam, (void *)request);
     return 0;
 }
 
@@ -159,35 +159,7 @@ int decompressBody(HTTPRequest *request, enum http_encoding encoding)
 }
 
 
-int prepareHTTPRequestMetadata(HTTPRequest *request, int *status, bool* keepAlive)
-{
-    char *contentLengthS = getHeader(request->headers, CONTENT_LENGTH_HEADER_NAME);
-    char *contentEncodingS = getHeader(request->headers, CONTENT_ENCODING_HEADER_NAME);
-
-    // CC_Deque *transferCodingValues = getHeaderValues(request->headers, TRANSFER_CODING_HEADER_NAME);
-    if (!contentEncodingS)
-    {
-        request->contentEncoding = IDENTITY_ENCODING;
-    }
-    else
-    {
-        request->contentEncoding = HTTP_ENCODING(contentEncodingS);
-        if (request->contentEncoding == UNKNOWN_ENCODING)
-        {
-            *status = HTTP_UNSUPPORTED_MEDIA_TYPE;
-            return -1;
-        }
-    }
-
-    if (contentLengthS)
-    {
-        const int base = 10;
-        request->contentLength = (int)strtol(contentLengthS, NULL, base);
-    }
-    return 0;
-}
-
-int scanRequest(HTTPRequest *request, bool *keepAlive, int *status)
+int scanNextRequest(HTTPRequest *request, bool *keepAlive, int *status)
 {
 
     // parse the first line
@@ -208,10 +180,8 @@ int scanRequest(HTTPRequest *request, bool *keepAlive, int *status)
         goto error;
     }
 
-    // the Host header is required
-
 success:
-    char *connect = getHeader(request->headers, CONNECTION_HEADER_NAME);
+    char *connect = getHeader(request, CONNECTION_HEADER_NAME);
     *keepAlive = (connect && !strcmp(connect, "keep-alive"));
     *status = HTTP_OK;
     return 0;
@@ -221,7 +191,7 @@ error:
 
 int prepareHTTPResponseStatusLine(HTTPResponse *response, GrowingBuffer *buffer)
 {
-    char firstline[4096];
+    char firstline[1 << 8];
     int totalSize = 0;
 
     char *phrase;
@@ -239,19 +209,25 @@ int prepareHTTPResponseMetadata(HTTPResponse *response)
 {
     char contentLengthS[METHOD_MAX_SIZE];
     sprintf(contentLengthS, "%d", response->contentLength);
-    if (response->transferEncoding != CHUNKED){
+    if (response->transferEncoding != CHUNKED)
+    {
         setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
     }
     if (response->contentLength > 0 && response->contentEncoding != IDENTITY_ENCODING)
     {
-        setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
         setHeader(response, CONTENT_ENCODING_HEADER_NAME, HTTP_ENCODING_STRING(response->contentEncoding));
     }
     if (response->transferEncoding != IDENTITY_ENCODING)
     {
         setHeader(response, TRANSFER_CODING_HEADER_NAME, HTTP_ENCODING_STRING(response->transferEncoding));
     }
-    response->version = "1.1";
+    if (response->contentType){
+        setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
+    }
+    if (cc_hashtable_size(response->cookies) > 0)
+    {
+        encodeCookies(response);
+    }
 
     return 0;
 }
@@ -333,12 +309,17 @@ int encodeHeaders(HTTPResponse *response, GrowingBuffer *buffer)
 
         CC_Deque *list = currentEntry->value;
         char *value;
-        cc_deque_get_first(list, (void **)&value);
-        int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key) + strlen(value)) + 1;
-        char currentLine[maxLineLength]; //
-        snprintf(currentLine, maxLineLength, "%s: %s\r\n", (char *)currentEntry->key, value);
-        int lineLength = (int)strlen(currentLine);
-        appendGrowingBuffer(buffer, currentLine, lineLength);
+
+        CC_DequeIter dequeIter;
+        cc_deque_iter_init(&dequeIter, list);
+        enum cc_stat iterStat;
+        while ((iterStat = cc_deque_iter_next(&dequeIter, (void **)&value)) == CC_OK)
+        {
+            int maxLineLength = (int)(strlen(": \r\n") + strlen(currentEntry->key) + strlen(value)) + 1;
+            char currentLine[maxLineLength]; //
+            int lineLength = snprintf(currentLine, maxLineLength, "%s: %s\r\n", (char *)currentEntry->key, value);
+            appendGrowingBuffer(buffer, currentLine, lineLength);
+        }
     }
     appendGrowingBuffer(buffer, (char *)HTTP_LINE_END_TOK, HTTP_LINE_END_TOK_SIZE);
 

@@ -1,6 +1,8 @@
 #include "server.h"
+#include "auth.h"
 #include "cc_array.h"
 #include "cc_common.h"
+#include "cc_hashtable.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
 #include "threadpool.h"
@@ -11,6 +13,7 @@
 #include <parser.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,18 +28,22 @@
 
 thread_local Arena arena;
 
-void* custom_alloc(size_t size){
+void *custom_alloc(size_t size)
+{
     return arena_alloc(&arena, size);
 }
-void* custom_calloc(size_t blocks,size_t size){
-    void * ptr =custom_alloc( blocks*size);
-    memset(ptr,0,blocks*size);
+void *custom_calloc(size_t blocks, size_t size)
+{
+    void *ptr = custom_alloc(blocks * size);
+    memset(ptr, 0, blocks * size);
     return ptr;
 }
-void custom_free(void* ptr){
+void custom_free(void *ptr)
+{
     arena_trim(&arena);
 }
-char* custom_strdup(char* str){
+char *custom_strdup(char *str)
+{
     return arena_strdup(&arena, str);
 }
 
@@ -47,8 +54,8 @@ void initServer(Server **server_p, char *host, char *name, char *webroot, int ma
     *server_p = server;
 
     server->host = arena_strdup(&arena, host);
-    server->name= arena_strdup(&arena, name);
-    server->webroot= arena_strdup(&arena, webroot);
+    server->name = arena_strdup(&arena, name);
+    server->webroot = arena_strdup(&arena, webroot);
 
     server->port = -1;
     server->maxWorkers = maxWorkers;
@@ -57,6 +64,10 @@ void initServer(Server **server_p, char *host, char *name, char *webroot, int ma
     server->socketfd = socket(AF_INET, SOCK_STREAM, 0);
     memset(&server->sock, 0, sizeof(struct sockaddr_in));
     initRouter(&server->router);
+
+    CC_HashTableConf conf;
+    configureHTTPDict(&conf);
+    cc_hashtable_new_conf(&conf, &sessionIDToCSRF);
 }
 
 void addFileSystemHandlerServer(Server *server, FileSystemHandler *handler)
@@ -155,14 +166,31 @@ void launch(Server *server)
     }
 }
 
+int checkHTTPMethod(Route *route, HTTPRequest *request)
+{
+
+    CC_ArrayIter iter;
+    cc_array_iter_init(&iter, route->allowedMethods);
+
+    enum cc_stat stat;
+    enum http_method *method;
+    while ((stat = cc_array_iter_next(&iter, (void **)&method)) == CC_OK)
+    {
+        if (*method == request->method)
+        {
+            return 0;
+        }
+    }
+    return -1;
+}
+
 void handleConnection(int connfd, Server *server)
 {
     bool keepAlive = true;
-    int statusCode = HTTP_OK;
     while (keepAlive)
     {
         HTTPRequest request;
-        initHTTPRequest(&request );
+        initHTTPRequest(&request);
 
         HTTPResponse response;
         initHTTPResponse(&response);
@@ -171,55 +199,61 @@ void handleConnection(int connfd, Server *server)
         initHTTPStream(&inStream, connfd);
         request.inputStream = &inStream;
 
-        int result = scanFirstLine( &request);
-        if (result == -1){
-            statusCode = HTTP_BAD_REQUEST;
+        int result = scanFirstLine(&request);
+        if (result == -1)
+        {
+            makeBadRequest(&response);
             goto send_error_resp;
         }
 
         result = scanHeaders(&request);
 
-        if (result == -1){
-            statusCode = HTTP_BAD_REQUEST;
-            goto send_error_resp;
-        }
-
-        result = prepareHTTPRequestMetadata(&request,&statusCode, &keepAlive  );
-
         if (result == -1)
         {
-            printf("%d", statusCode);
-            statusCode = HTTP_BAD_REQUEST;
+            makeBadRequest(&response);
             goto send_error_resp;
         }
 
         setRequest(&response, &request);
 
         // choose a request handler that matches the url endpoint the most
-        RequestHandler *handler = longestPrefixMatch(&server->router, &request);
-        if (!handler){
-            // 404 if no handler found
+        Route *route = NULL;
+        int resultMatch =  longestPrefixMatch(&server->router, &request, &route );
 
-            const char * resp = "404 Not found!";
-            statusCode = HTTP_NOT_FOUND;
-            setResponseBody(&response, resp, strlen(resp));
-            goto send_error_resp;
+        // if there was a match, but the methods do not match, send a 405
+        switch (resultMatch){
+            case -1:
+                makeNotFound(&response);
+                goto send_error_resp;
+            case -2:
+                makeMethodNotSupported(&response);
+                goto send_error_resp;
+            default:
+                break;
         }
+
+
+
         // if a handler is found call the handler function that will decide how to mofidy the request
         // and send data back via TCP to the client
-        handler->handleCallback(&request, &response, handler->handlerObject, connfd);
+        int resultChain = handleRequestRouter(route, &request, &response, connfd) ;
+        if (resultChain < 0)
+        {
+            goto send_error_resp;
+        }
 
-        // free the http request and the associated meory in the arena
-        // no need to deallocate, keep the meory for future requests
-        free_code:
-            freeHTTPRequest(&request);
-            freeHTTPResponse(&response);
-            arena_reset(&arena);
-            return ;
-        send_error_resp:
-            response.statusCode = statusCode;
-            sendResponse(&response, connfd);
-            goto free_code;
+    // free the http request and the associated meory in the arena
+    // no need to deallocate, keep the meory for future requests
+    free_code:
+        current_user.username = NULL;
+        current_user.role = NULL;
+        freeHTTPRequest(&request);
+        freeHTTPResponse(&response);
+        arena_reset(&arena);
+        return;
+    send_error_resp:
+        sendResponse(&response, connfd);
+        goto free_code;
     }
 }
 

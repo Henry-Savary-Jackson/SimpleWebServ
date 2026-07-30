@@ -39,7 +39,7 @@ const char *HTTP_NOT_FOUND_PHRASE = "Not Found";
 const char *HTTP_METHOD_UNSUPPORTED_PHRASE = "Method Not Allowed";
 const char *HTTP_NOT_ACCEPTED_PHRASE = "Not Acceptable";
 const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE = "Length Required";
-const char * HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE = "Unsupported Media Type";
+const char *HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE = "Unsupported Media Type";
 const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 
 CC_HashTable *code_to_phrase;
@@ -227,7 +227,11 @@ int initHTTPRequest(HTTPRequest *request)
     {
         return -1;
     }
-
+    enum cc_stat resultCookies = cc_hashtable_new_conf(&htConf, &request->cookies);
+    if (resultParams != CC_OK)
+    {
+        return -1;
+    }
 
     return 0;
 }
@@ -246,6 +250,7 @@ int initHTTPResponse(HTTPResponse *response)
     response->request = NULL;
     response->contentEncoding = IDENTITY_ENCODING;
     response->transferEncoding = IDENTITY_ENCODING;
+    response->contentType = NULL;
 
     CC_HashTableConf htConf;
     configureHTTPDict(&htConf);
@@ -255,6 +260,12 @@ int initHTTPResponse(HTTPResponse *response)
     {
         return -1;
     }
+    enum cc_stat resultCookies = cc_hashtable_new_conf(&htConf, &response->cookies);
+    if (resultCookies != CC_OK)
+    {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -300,7 +311,7 @@ void init_code_to_phrase()
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
 
-char *getHeader(CC_HashTable *dict, char *key)
+char *getValueDict(CC_HashTable *dict, char *key)
 {
     //
     char *value;
@@ -315,7 +326,7 @@ char *getHeader(CC_HashTable *dict, char *key)
     return out;
 }
 
-CC_Deque *getHeaderValues(CC_HashTable *dict, char *key)
+CC_Deque *getValuesDict(CC_HashTable *dict, char *key)
 {
     CC_Deque *deque = NULL;
     enum cc_stat stat = cc_hashtable_get(dict, key, (void **)&deque);
@@ -326,9 +337,9 @@ CC_Deque *getHeaderValues(CC_HashTable *dict, char *key)
     return deque;
 }
 
-void setHeaderPool(CC_HashTable *dict, char *key, char *value)
+void putKVDict(CC_HashTable *dict, char *key, char *value)
 {
-    CC_Deque *valueQueue = getHeaderValues(dict, key);
+    CC_Deque *valueQueue = getValuesDict(dict, key);
     if (valueQueue == NULL)
     {
         CC_DequeConf conf;

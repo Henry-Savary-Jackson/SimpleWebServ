@@ -17,6 +17,7 @@ add_subdirectory(src/utils)
 add_subdirectory(src/http)
 add_subdirectory(src/parser)
 add_subdirectory(src/server)
+add_subdirectory(src/auth)
 
 add_executable(output
         src/main.c
@@ -26,12 +27,15 @@ target_include_directories(output PRIVATE  include lib/collectc/src/include)
 
 target_link_libraries(output PRIVATE
     server
+    auth
     httplib
     parser
     utilslib
     collectc
     magic
     z
+    sodium
+    uuid
     pthread
 )
 # alternative cmake -DCMAKE_BUILD_TYPE=Debug <path and other arguments>

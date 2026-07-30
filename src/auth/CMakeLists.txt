@@ -10,6 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(parser STATIC cookies.c parser.c chunked.c compression.c encoding.c qualityvalues.c mimetype.c encodingFilter.c)
-target_include_directories( parser PUBLIC ../../include)
-target_include_directories( parser PUBLIC ../../lib/collectc/src/include)
+add_library(auth STATIC auth.c authfilter.c authhandler.c csrf.c )
+target_include_directories( auth PUBLIC ../../include)
+target_include_directories( auth  PUBLIC ../../lib/collectc/src/include)

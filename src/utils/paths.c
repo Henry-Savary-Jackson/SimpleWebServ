@@ -149,3 +149,27 @@ void removePrefix(Path *path, Path *prefix)
         cc_deque_zip_iter_remove(&zipIter, out1, out2);
     }
 }
+// TODO: realistically you;d want to have this function handle regex chars
+// for now just does prefix matching
+int prefixMatchPaths(Path *prefix, Path *path)
+{
+    int prefixSize = (int)cc_deque_size(prefix->directories);
+    int pathSize = (int)cc_deque_size(path->directories);
+    if (prefixSize > pathSize){
+        return -1; // not a match!
+    }
+    if (prefixSize == 0){
+        return 0; // if the prefix is ./ , then you could match it
+    }
+
+    Path common;
+    commonRoot(&common, prefix, path);
+    int commonSize = (int)cc_deque_size(common.directories);
+
+    if ( commonSize== 0){
+        // if the very first directories in URI mismatch, then give -1 not a match!
+        return -1;
+    }
+
+    return commonSize;
+}

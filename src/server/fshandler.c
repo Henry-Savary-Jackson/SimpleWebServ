@@ -1,3 +1,4 @@
+#include "cc_array.h"
 #include "cc_common.h"
 #include "cc_deque.h"
 #include "cc_pqueue.h"
@@ -8,6 +9,7 @@
 #include "utils.h"
 #include <asm-generic/errno-base.h>
 #include <assert.h>
+#include <auth.h>
 #include <errno.h>
 #include <linux/limits.h>
 #include <server.h>
@@ -49,35 +51,9 @@ void sanitizeURI(char *uri, char *output)
     output[headOut] = 0; // nul terminate
 }
 
-
-int prefixMatchPaths(Path *path1, Path *path2)
-{
-    Path common;
-    commonRoot(&common, path1, path2);
-
-    return (int)cc_deque_size(common.directories);
-}
-
-int prefixMatchFSHandler(HTTPRequest *request, void *handler)
-{
-    FileSystemHandler *fsHandler = (FileSystemHandler *)handler;
-    return prefixMatchPaths(&fsHandler->pathPrefix, &request->uriPath);
-}
-
 int handleDirectory(Path *fullPath, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler)
 {
-    switch (request->method)
-    {
-    case GET:
-        addToPath(fullPath, "index.html");
-        return 0;
-    default:
-        response->statusCode = HTTP_FORBIDDEN;
-        const char *msg = "Is a directory!";
-        setResponseBody(response, msg, strlen(msg));
-        return -1;
-    }
-    // append
+    addToPath(fullPath, "index.html");
     return 0;
 }
 
@@ -90,11 +66,11 @@ int handleNotFound(Path *fullPath, HTTPRequest *request, HTTPResponse *response,
     return -1;
 }
 
-int chooseContentType(char *path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+int chooseContentType(char *path, HTTPRequest *request, HTTPResponse *response, int connfd)
 {
     // check if mimetype desire matches
     // check if
-    CC_Deque *acceptMimetypes = getHeaderValues(request->headers, ACCEPT_MIMETYPE_HEADER_NAME);
+    CC_Deque *acceptMimetypes = getHeaderValues(request, ACCEPT_MIMETYPE_HEADER_NAME);
     if (acceptMimetypes != NULL)
     {
         // there are specified content headers
@@ -123,125 +99,6 @@ int chooseContentType(char *path, HTTPRequest *request, HTTPResponse *response, 
         response->contentType = "text/html";
     }
     return 0;
-}
-
-int chooseContentEncoding(char *path,
-                          HTTPRequest *request,
-                          HTTPResponse *response,
-                          FileSystemHandler *handler,
-                          int connfd)
-{
-    CC_Deque *acceptEncodings = getHeaderValues(request->headers, ACCEPT_ENCODING_HEADER_NAME);
-    if (acceptEncodings != NULL)
-    {
-        CC_PQueue *encodingPqueue = decodeAcceptEncodings(acceptEncodings);
-        if (!encodingPqueue)
-        {
-            return -1;
-        }
-        int result = decideContentEncoding(encodingPqueue, &response->contentEncoding);
-        if (response->contentEncoding == UNKNOWN_ENCODING)
-        {
-            response->statusCode = HTTP_NOT_ACCEPTED;
-            response->contentType = "text/html";
-            response->contentEncoding = IDENTITY_ENCODING;
-            sendResponse(response, connfd);
-            return -1;
-        }
-    }
-    else
-    {
-        response->contentEncoding = IDENTITY_ENCODING;
-    }
-    return 0;
-}
-
-int chooseServerTransferCoding(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
-{
-    char *transferCodingStr = getHeader(request->headers, TRANSFER_CODING_HEADER_NAME);
-    if (!transferCodingStr)
-    {
-        return 0;
-    }
-    request->transferEncoding = HTTP_ENCODING(transferCodingStr);
-    if (request->transferEncoding == UNKNOWN_ENCODING)
-    {
-        response->statusCode = HTTP_NOT_ACCEPTED;
-        return -1;
-    }
-    return 0;
-}
-
-int chooseClientTransferCoding(char *path,
-                               HTTPRequest *request,
-                               HTTPResponse *response,
-                               FileSystemHandler *handler,
-                               int connfd)
-{
-
-    CC_Deque *acceptTE = getHeaderValues(request->headers, TRANSFER_ENCODING_CLIENT_HEADER_NAME);
-    if (acceptTE != NULL)
-    {
-        CC_PQueue *encodingPqueue = decodeAcceptEncodings(acceptTE);
-        if (!encodingPqueue)
-        {
-            return -1;
-        }
-        if (decideTransferEncoding(encodingPqueue, &response->transferEncoding))
-        {
-            response->statusCode = HTTP_NOT_ACCEPTED;
-            response->contentType = "text/html";
-            response->contentEncoding = IDENTITY_ENCODING;
-            response->transferEncoding = IDENTITY_ENCODING;
-            sendResponse(response, connfd);
-            return -1;
-        }
-    }
-    return 0;
-}
-
-int writeToFile(FILE *file, char *chunk, int size)
-{
-    size_t totalWritten = 0;
-    size_t nwritten = 0;
-    while (totalWritten < size)
-    {
-        nwritten = fwrite(chunk + totalWritten, 1, size - totalWritten, file);
-        if (ferror(file) && errno == EINTR)
-        {
-            clearerr(file);
-        }
-        if (ferror(file))
-        {
-            return -1;
-        }
-        totalWritten += nwritten;
-    }
-    return 0;
-}
-
-int readFromFile(FILE *file, char *chunk, int size)
-{
-    size_t totalRead = 0;
-    size_t numRead = 0;
-    while (totalRead < size)
-    {
-        numRead = fread(chunk + totalRead, 1, size - totalRead, file);
-        if (feof(file))
-        {
-            return (int)(totalRead + numRead);
-        }
-        if (ferror(file) && errno == EINTR)
-        {
-            clearerr(file);
-        }
-        else if (ferror(file))
-        {
-            return -1;
-        }
-        totalRead += numRead;
-    }
-    return (int)totalRead;
 }
 
 
@@ -346,23 +203,17 @@ int handleTransferCodingRequest(FILE *file,
     }
 }
 
-int handleDELETEFile(Path *path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+int handleDELETEFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
 {
-    if (request->contentLength > 0)
-    {
-        scanBody(request);
-    }
-
     int ret = 0;
     char pathStr[PATH_MAX];
+    Path *path = &request->uriPath;
     pathToStr(path, pathStr);
 
     if (access(pathStr, F_OK))
     {
-        response->statusCode = HTTP_NOT_FOUND;
-        const char *resp = "NOT FOUND";
-        setResponseBody(response, resp, strlen(resp));
-        return -1;
+        makeNotFound(response);
+        goto end;
     }
 
     struct stat stat_res;
@@ -370,11 +221,16 @@ int handleDELETEFile(Path *path, HTTPRequest *request, HTTPResponse *response, F
     stat(pathStr, &stat_res);
 
     bool isDir = S_ISDIR(stat_res.st_mode);
-    if (isDir)
-    {
-        return rmdir(pathStr);
-    }
-    return unlink(pathStr);
+
+    ret = isDir ? rmdir(pathStr) : unlink(pathStr);
+
+    response->statusCode = HTTP_OK;
+    response->contentEncoding = IDENTITY_ENCODING;
+    response->transferEncoding = IDENTITY_ENCODING;
+
+    sendResponse(response, connfd);
+end:
+    return ret;
 }
 
 
@@ -409,14 +265,11 @@ int handleRequestContentEncoding(HTTPRequest *request, HTTPResponse *response, F
     return 0;
 }
 
-int handlePOSTFile(Path *path,
-                   char *pathStr,
-                   HTTPRequest *request,
-                   HTTPResponse *response,
-                   FileSystemHandler *handler,
-                   int connfd)
+int handlePOSTFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
 {
     FILE *openedFile = NULL;
+    Path *path = &request->uriPath;
+    char pathStr[PATH_MAX];
     int ret = 0;
     do
     {
@@ -441,62 +294,49 @@ int handlePOSTFile(Path *path,
     if (!openedFile)
     {
         // still null, it failed, send response back
-        response->statusCode = HTTP_SERVER_ERROR;
+        makeNotFound(response);
         ret = -1;
+        goto finish;
     }
 
-    if (!ret && chooseServerTransferCoding(request, response, handler, connfd))
-    {
-        response->statusCode = HTTP_BAD_REQUEST;
-        ret = -1;
-    }
-
-    // always make sure to recv the entire body even if there is an error
-    if (request->contentLength > 0 && request->transferEncoding != CHUNKED)
-    {
-        scanBody(request);
-    }
-
-    if (ret)
-    {
-        goto closefile;
-    }
-
-    if (!ret)
-    {
-        ret = handleTransferCodingRequest(openedFile, request, response, handler, connfd);
-    }
+    ret = handleTransferCodingRequest(openedFile, request, response, handler, connfd);
 
     if (ret > 0)
     {
         ret = 0;
-        goto closefile;
+        // done if you wrote to the file chunked
+        goto finish;
     }
 
     if (ret)
     {
-        response->statusCode = HTTP_BAD_REQUEST;
-        goto closefile;
+        makeBadRequest(response);
+        goto finish;
     }
 
     if (request->contentLength == 0)
     {
         unlink(pathStr);
         ret = mkdir(pathStr, 7);
-        goto closefile;
+        goto finish;
     }
 
     ret = handleRequestContentEncoding(request, response, handler, connfd);
+
     if (ret)
     {
-        goto closefile;
+        makeBadRequest(response);
+        goto finish;
     }
     // if you didnt using chunked, then start writing the final body
     ret = writeToFile(openedFile, request->body, request->contentLength);
 
-closefile:
+    sendResponse(response, connfd);
+finish:
     if (openedFile)
+    {
         fclose(openedFile);
+    }
     return ret;
 }
 
@@ -504,6 +344,8 @@ int sendBodyGETChunked(FILE *file, HTTPResponse *response, FileSystemHandler *ha
 {
     char chunk[FS_CHUNK_SIZE];
     int n_read = 0;
+    int ret = 0;
+
     while (!feof(file))
     {
 
@@ -511,14 +353,17 @@ int sendBodyGETChunked(FILE *file, HTTPResponse *response, FileSystemHandler *ha
         int end = feof(file);
         if (n_read < 0)
         {
-            return n_read;
+            ret = -1;
+            goto end_code;
         }
-        int sendRet = sendChunk(connfd, chunk, n_read);
-        if (sendRet < 0)
+        int ret = sendChunk(connfd, chunk, n_read);
+        if (ret < 0)
         {
-            return sendRet;
+            goto end_code;
         }
     }
+
+end_code:
     sendFinalChunk(connfd);
     return 0;
 }
@@ -535,12 +380,16 @@ int sendBodyGETChunkedCompressed(z_stream *strm,
     int n_total_read = 0;
     int total_size = 0;
     int isEOF = 0;
+
+    int ret = 0;
+
     while (!isEOF)
     {
         n_read = readFromFile(file, chunk, sizeof(chunk));
         if (n_read < 0)
         {
-            return n_read;
+            ret = n_read;
+            goto end_code;
         }
         isEOF = feof(file);
 
@@ -551,16 +400,18 @@ int sendBodyGETChunkedCompressed(z_stream *strm,
             int n_compressed = compressChunk(strm, chunk, n_read, outChunk, sizeof(outChunk), (bool)isEOF);
             if (n_compressed < 0)
             {
-                return n_compressed;
+                ret = n_compressed;
+                goto end_code;
             }
-            int sendRet = sendChunk(connfd, outChunk, n_compressed);
+            int ret = sendChunk(connfd, outChunk, n_compressed);
             total_size += n_compressed;
-            if (sendRet < 0)
+            if (ret < 0)
             {
-                return sendRet;
+                goto end_code;
             }
         }
     }
+end_code:
     sendFinalChunk(connfd);
     return 0;
 }
@@ -569,7 +420,7 @@ int handleSendingBodyChunked(FILE *file, HTTPResponse *response, FileSystemHandl
 {
     z_stream strm;
     int ret_prep = 0;
-    int send_res = 0;
+    int send_ret = 0;
     strm.zalloc = Z_NULL;
     strm.zfree = Z_NULL;
     strm.opaque = Z_NULL;
@@ -582,22 +433,18 @@ int handleSendingBodyChunked(FILE *file, HTTPResponse *response, FileSystemHandl
         ret_prep = encode_zlib_prepare(&strm);
         break;
     default:
-        send_res = sendBodyGETChunked(file, response, handler, connfd);
+        send_ret = sendBodyGETChunked(file, response, handler, connfd);
         goto check_end;
     }
     if (ret_prep)
     {
         return ret_prep;
     }
-    send_res = sendBodyGETChunkedCompressed(&strm, file, response, handler, connfd);
+    send_ret = sendBodyGETChunkedCompressed(&strm, file, response, handler, connfd);
     deflateEnd(&strm);
 
 check_end:
-    if (send_res)
-    {
-        return send_res;
-    }
-    return 0;
+    return send_ret;
 }
 
 int readFileIntoBody(FILE *file, HTTPResponse *response, FileSystemHandler *handler)
@@ -657,19 +504,13 @@ int sendBodyGET(FILE *file, HTTPResponse *response, FileSystemHandler *handler, 
     return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
 }
 
-int handleGETFile(Path *path,
-                  char *pathStr,
-                  HTTPRequest *request,
-                  HTTPResponse *response,
-                  FileSystemHandler *handler,
-                  int connfd)
+int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
 {
-    if (request->contentLength > 0)
-    {
-        scanBody(request);
-    }
+
 
     FILE *openedFile = NULL;
+    Path *path = &request->uriPath;
+    char pathStr[PATH_MAX];
     int ret = 0;
     do
     {
@@ -683,8 +524,9 @@ int handleGETFile(Path *path,
             {
             case ENOTDIR:
             case EPERM:
-                handleNotFound(path, request, response, handler);
-                break;
+                makeNotFound(response);
+                ret = -1;
+                goto error;
             case EISDIR:
                 tryAgain = handleDirectory(path, request, response, handler) == 0;
                 break;
@@ -710,92 +552,84 @@ int handleGETFile(Path *path,
         goto error;
     }
     // test if file exists
-    if ( access(pathStr, F_OK) == -1)
+    if (access(pathStr, F_OK) == -1)
     {
-        // file doesnt exist or we cant read it
-        handleNotFound(path, request, response, handler);
         ret = -1;
+        makeNotFound(response);
         goto error;
     }
 
-    if ( chooseContentType(pathStr, request, response, handler, connfd))
+    if (chooseContentType(pathStr, request, response, connfd))
     {
-        response->statusCode = HTTP_BAD_REQUEST;
+
         ret = -1;
+        makeMediaTypeNotSupported(response);
         goto error;
     }
-
-    if (chooseContentEncoding(pathStr, request, response, handler, connfd))
-    {
-        response->statusCode = HTTP_BAD_REQUEST;
-        ret = -1;
-        goto error;
-    }
-
-    if (chooseClientTransferCoding(pathStr, request, response, handler, connfd))
-    {
-        response->statusCode = HTTP_BAD_REQUEST;
-        ret = -1;
-        goto error;
-    }
-
-    sendBodyGET(openedFile, response, handler, connfd);
+    ret = sendBodyGET(openedFile, response, handler, connfd);
 
 closefile:
     if (openedFile)
+    {
         fclose(openedFile);
+    }
     return ret;
 error:
-    sendResponse(response,  connfd);
+    // any error cleanup
+    // the request handler handles sending error responses if need be
     goto closefile;
 }
 
-
-int tryFiles(Path *path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+void replacePrefixWithWebroot(HTTPRequest *request, FileSystemHandler *fsHandler)
 {
-    char pathStr[PATH_MAX];
-    int ret = 0;
-    switch (request->method)
-    {
-    case GET:
-        return handleGETFile(path, pathStr, request, response, handler, connfd);
-    case POST:
-        ret = handlePOSTFile(path, pathStr, request, response, handler, connfd);
-        break;
-    case DELETE:
-        ret = handleDELETEFile(path, request, response, handler, connfd);
-        break;
-    default:
-        response->statusCode = HTTP_METHOD_UNSUPPORTED;
-        break;
-    }
-    response->version = "1.1";
-    sendResponse(response, connfd);
-    return ret;
-}
-
-int FSHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
-{
-    FileSystemHandler *fsHandler = (FileSystemHandler *)handler;
-
     sanitizePath(&request->uriPath);
 
     removePrefix(&request->uriPath, &fsHandler->pathPrefix);
 
     // add webroot to prefix the path
     concatenatePath(&fsHandler->webroot, &request->uriPath);
-
-    return tryFiles(&request->uriPath, request, response, fsHandler, connfd);
 }
 
-
-RequestHandler getFSHandlerObj(FileSystemHandler *fsHandler)
+int FSHandlerCallbackPublic(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
 {
-    return (RequestHandler){
-        .handlerObject = fsHandler,
-        .getPrefixMatch = prefixMatchFSHandler,
-        .handleCallback = FSHandlerCallback,
-    };
+    replacePrefixWithWebroot(request, handler);
+    return handleGETFile(request, response, handler, connfd);
+}
+int FSHandlerCallbackPrivate(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
+{
+    replacePrefixWithWebroot(request, handler);
+    switch (request->method)
+    {
+    case DELETE:
+        return handleDELETEFile(request, response, handler, connfd);
+    case POST:
+        return handlePOSTFile(request, response, handler, connfd);
+    default:
+        response->statusCode = HTTP_METHOD_UNSUPPORTED;
+        return -1;
+    }
+}
+
+Route getPublicFSHandlerObj(FileSystemHandler *fsHandler)
+{
+    enum http_method methods[1] = {GET};
+    Route route;
+    initRoute(&route, fsHandler->pathPrefix, methods, sizeof(methods) / sizeof(enum http_method));
+    route.handlerObject = fsHandler;
+    route.handleCallback = FSHandlerCallbackPublic;
+    return route;
+}
+
+Route getPrivateFSHandlerObj(FileSystemHandler *fsHandler)
+{
+    enum http_method methods[2] = {POST, DELETE};
+    Route route;
+    initRoute(&route, fsHandler->pathPrefix, methods, sizeof(methods) / sizeof(enum http_method));
+    route.handlerObject = fsHandler;
+    route.handleCallback = FSHandlerCallbackPrivate;
+    cc_array_add(route.filterChain, &csrfFilter);
+    cc_array_add(route.filterChain, &authFilter);
+    return route;
 }
 
 void initFileSystemHandler(FileSystemHandler *fsHandler, char *pathPrefix, char *webroot)
@@ -808,6 +642,8 @@ void initFileSystemHandler(FileSystemHandler *fsHandler, char *pathPrefix, char 
 
 void addFileSystemHandler(Router *router, FileSystemHandler *fsHandler)
 {
-    RequestHandler handler = getFSHandlerObj(fsHandler);
-    addHandler(router, &handler);
+    Route route = getPrivateFSHandlerObj(fsHandler);
+    addRoute(router, &route);
+    route = getPublicFSHandlerObj(fsHandler);
+    addRoute(router, &route);
 }

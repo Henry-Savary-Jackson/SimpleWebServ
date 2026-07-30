@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.23)
 project(cc_pool_bench)
 
 include_directories(${PROJECT_SOURCE_DIR}/include ${collectc_INCLUDE_DIRS})

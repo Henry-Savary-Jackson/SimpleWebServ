@@ -3,7 +3,8 @@
 #include "cc_deque.h"
 #include "cc_hashtable.h"
 #include <asm-generic/errno-base.h>
-#include <utils.h>
+#include <zlib.h>
+#include "utils.h"
 
 #define CONTENT_LENGTH_HEADER_NAME "Content-Length"
 #define TRANSFER_CODING_HEADER_NAME "Transfer-Encoding"
@@ -15,6 +16,8 @@
 #define HOST_HEADER_NAME "Host"
 #define LOCATION_HEADER_NAME "Location"
 #define CONNECTION_HEADER_NAME "Connection"
+#define COOKIE_CLIENT_HEADER_NAME "Cookie"
+#define COOKIE_SERVER_HEADER_NAME "Set-Cookie"
 
 // method
 #define HTTP_METHOD_GET "GET"
@@ -26,7 +29,7 @@
 #define METHOD_UNKNOWN_STR "Unknown"
 #define HTTP_NUM_SUPPORTED_METHODS 6
 
-enum http_method {GET=0, POST=1, PUT=2, DELETE=3, HEAD=4, OPTIONS=5, UNKNOWN_METHOD};
+enum http_method {GET=0, POST=1, PUT=2, DELETE=3, HEAD=4, OPTIONS=5, UNKNOWN_METHOD=6};
 
 extern const char* http_method_arr[HTTP_NUM_SUPPORTED_METHODS+1] ;
 
@@ -95,6 +98,7 @@ typedef struct {
 
 extern CC_HashTable *code_to_phrase;
 
+
 enum http_stream_status
 {
     LF_REACHED,
@@ -115,6 +119,7 @@ extern const int HTTP_LINE_END_TOK_SIZE;
 
 typedef struct
 {
+    z_stream zstrm;
     int capacity;
     int connfd;
     int head;
@@ -138,8 +143,16 @@ typedef struct {
 } Header;
 
 typedef struct {
+    char * major;
+    char * min;
+    char* charset;
+   char*  boundary;
+} MediaType;
+
+typedef struct {
   CC_HashTable * headers;
   CC_HashTable *urlParams;
+  CC_HashTable *cookies;
   Path uriPath;
   char* uri;
   enum http_method method;
@@ -148,12 +161,14 @@ typedef struct {
   char *body;
   enum http_encoding contentEncoding; // done by client
   enum http_encoding transferEncoding; // done hop by hop
+  MediaType contentType;
   HTTPStream* inputStream;
 } HTTPRequest;
 
 typedef struct {
   HTTPRequest *request;
   CC_HashTable * headers;
+  CC_HashTable *cookies;
   int contentLength;
   int statusCode;
   char *body;
@@ -172,11 +187,33 @@ void freeHTTPResponse(HTTPResponse *response);
 
 void configureHTTPDict(CC_HashTableConf* conf);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
-char* getHeader(CC_HashTable *dict, char *key);
-CC_Deque* getHeaderValues(CC_HashTable *dict, char *key);
-void setHeaderPool(CC_HashTable* dict,char *key, char *value);
-#define setHeader(r,k,v) setHeaderPool((r)->headers, k, v )
-#define setQueryParam(r,k,v) setHeaderPool((r)->urlParams, k, v )
+char* getValueDict(CC_HashTable *dict, char *key);
+CC_Deque* getValuesDict(CC_HashTable *dict, char *key);
+void putKVDict(CC_HashTable* dict,char *key, char *value);
+
+#define setHeader(r,k,v) putKVDict((r)->headers, k, v )
+#define getHeader(r,k) getValueDict((r)->headers, k )
+#define getHeaderValues(r,k) getValuesDict((r)->headers, k )
+
+#define setQueryParam(r,k,v) putKVDict((r)->urlParams, k, v )
+#define getQueryParam(r,k) getValueDict((r)->urlParams, k )
+#define getQueryParamValues(r,k) getValuesDict((r)->urlParams, k )
+
+#define setCookieRequest(r,k,v) putKVDict((r)->cookies, k, v )
+#define getCookieRequest(r,k) getValueDict((r)->cookies, k )
+#define getCookieValuesRequest(r,k) getValuesDict((r)->cookies, k )
+
 
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();
+
+int makeErrorResponse(HTTPResponse* response, int status, char * message);
+int makeBadRequest(HTTPResponse* response); //
+int makeUnauthorized(HTTPResponse* response);
+int makeForbidden(HTTPResponse* response);
+int makeNotFound(HTTPResponse* response);
+int makeContentLengthRequired(HTTPResponse* response);
+int makeMethodNotSupported(HTTPResponse* response);
+int makeNotAccepable(HTTPResponse* response);
+int makeMediaTypeNotSupported(HTTPResponse* response);
+int makeServerErrror(HTTPResponse* response);

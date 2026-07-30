@@ -10,6 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(httplib STATIC http.c )
+add_library(httplib STATIC http.c error.c )
 target_include_directories( httplib PUBLIC ../../include)
 target_include_directories( httplib  PUBLIC ../../lib/collectc/src/include)

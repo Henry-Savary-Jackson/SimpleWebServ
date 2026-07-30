@@ -4,6 +4,7 @@
 #include "memory/cc_dynamic_pool.h"
 #include <iso646.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <sys/types.h>
 typedef struct
 {
@@ -34,6 +35,7 @@ void copyString(String *dst, char *src);
 char *allocStringArena(void *dict, char *value);
 void copyStringToPool(char ** dst, char* src, CC_DynamicPool* pool);
 int arrLineSearch(char **arr, int size, char *key);
+void strToLower(char * str, char** out );
 
 void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args);
 
@@ -75,5 +77,9 @@ void addToPath(Path* path, char* dirname);
 void popFromPath(Path* path);
 void removePrefix(Path *path, Path *prefix);
 void sanitizePath(Path* path);
+int prefixMatchPaths(Path *prefix, Path *path);
 
 int sendDataTCP(int connfd, char * chunk , int size);
+
+int writeToFile(FILE *file, char *chunk, int size);
+int readFromFile(FILE *file, char *chunk, int size);

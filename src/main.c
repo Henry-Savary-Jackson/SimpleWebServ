@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <auth.h>
 #include <unistd.h>
 #define ARENA_IMPLEMENTATION
 #include <arena.h>
@@ -92,6 +93,9 @@ int main(int argc, char *argv[])
     sigemptyset(&sa.sa_mask);
     sigaction(SIGCHLD, &sa2, NULL);
 
+    if (loadKeyPair()){
+        printf("failed to load keypair!");
+    }
 
     initServer(&server, "localhost", "mywebserver", "webroot", MAX_WORKERS);
     setServerAddress(server, addr, (int)port);
@@ -99,6 +103,22 @@ int main(int argc, char *argv[])
     FileSystemHandler handler;
     initFileSystemHandler(&handler, "/test", "webroot");
     addFileSystemHandlerServer(server, &handler);
+
+    FileSystemHandler handlerStatic;
+    initFileSystemHandler(&handlerStatic, "/static", "html");
+    Route routeStatic= getPublicFSHandlerObj(&handlerStatic);
+    addRoute(&server->router, &routeStatic);
+
+    AuthHandler authHandler;
+    initAuthHandler(&authHandler, "/login", "/signup", "html/login.html", "html/signup.html");
+    addAuthenticationHandler(server, &authHandler);
+
+    Route csrfRoute = getCSRFRoute();
+    addRoute(&server->router, &csrfRoute);
+
+    char * token;
+    signUpUser(&auth, "admin", "admin", &token);
+
     bindSocket(server);
 
     launch(server);

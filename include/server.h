@@ -15,8 +15,10 @@ char* custom_strdup(char* str);
 
 typedef struct
 {
-    CC_Array *requestHandlers;
+    CC_Array *routes;
 }Router;
+
+
 
 typedef struct
 {
@@ -40,11 +42,14 @@ typedef struct{
   enum http_encoding* acceptedEncodings;
 } FileSystemHandler ;
 
+
 typedef struct {
   int (*handleCallback)( HTTPRequest* request, HTTPResponse* response ,void* handlerObj, int connfd);
   void* handlerObject;
-  int (*getPrefixMatch)(HTTPRequest*, void* handlerObj);
-}RequestHandler;
+  Path prefixPattern;
+  CC_Array* filterChain;
+  CC_Array* allowedMethods;
+}Route;
 
 
 void initServer(Server** server_p, char* host, char* name, char* webroot , int maxWorkers);
@@ -57,9 +62,16 @@ void shutDownServer(Server* server);
 
 
 void initRouter(Router *router);
-void addHandler(Router* router, RequestHandler* handler );
-RequestHandler* longestPrefixMatch(Router* router, HTTPRequest* request);
+void initRoute(Route* route, Path prefixPattern, enum http_method * supportedMethods, int numSupportedMethods);
+void addRoute(Router* router, Route* handler );
+int longestPrefixMatch(Router* router, HTTPRequest* request, Route** chosenRoute);
+int checkHTTPMethod(Route *route, HTTPRequest *request);
 void addFileSystemHandlerServer(Server* server, FileSystemHandler* handler);
+
+Route getPublicFSHandlerObj(FileSystemHandler *fsHandler);
+Route getPrivateFSHandlerObj(FileSystemHandler *fsHandler);
+
+int handleRequestRouter(Route* route, HTTPRequest* request, HTTPResponse* response, int connfd);
 void freeRouter(Router* router);
 
 void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot);
