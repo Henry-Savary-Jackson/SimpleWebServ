@@ -1,3 +1,5 @@
+#include "cc_common.h"
+#include "cc_hashtable.h"
 #include "server.h"
 #include <argon2.h>
 #include <auth.h>
@@ -22,18 +24,53 @@ unsigned char secretKey[crypto_sign_SECRETKEYBYTES];
 
 struct Auth_s
 {
-    char *username;
-    char *passwordHash;
-    char *role;
+    CC_HashTable* users;
 };
 
-Auth auth = {
-    "admin",
-    NULL,
-    "admin",
-};
+
+typedef struct {
+    char * username;
+    char * passwordHash;
+    char * role;
+} UserRecord;
+
+Auth auth ;
 
 #define MAX_USERNAME 128
+
+void initAuth(Auth auth){
+    CC_HashTableConf conf;
+    cc_hashtable_conf_init(&conf);
+    conf.key_length = KEY_LENGTH_VARIABLE;
+    conf.hash = STRING_HASH;
+    conf.key_compare = CC_CMP_STRING;
+    conf.mem_alloc = custom_alloc;
+    conf.mem_calloc = custom_calloc;
+    conf.mem_free = custom_free;
+    cc_hashtable_new_conf(&conf,&auth.users);
+}
+
+UserRecord* getUser(Auth* auth, char* username){
+    UserRecord* out = NULL;
+    enum cc_stat stat = cc_hashtable_get(auth->users,username, (void**)out );
+    if (stat != CC_OK){
+        return NULL;
+    }
+    return out;
+}
+
+UserRecord* addUser(Auth* auth, char * username, char * passwordHash,char* role){
+    UserRecord* user= custom_alloc(sizeof(User));
+
+    user->username = custom_strdup( username);
+    user->passwordHash =custom_strdup( passwordHash);
+    user->role = custom_strdup(role);
+    enum cc_stat stat = cc_hashtable_add(auth->users,username, user );
+    if (stat != CC_OK){
+        return NULL;
+    }
+    return user;
+}
 
 int initKeyPair(){
     return crypto_sign_keypair(publicKey, secretKey);
@@ -52,14 +89,18 @@ int generateLoginToken(char* username, char **token){
 }
 
 // TODO: make sure the memory for storing the sensitive request ( )
-int loginUser(Auth* auth, char *username, char *password, char** token)
+int loginUser(Auth* auth, char *username, char *password, char** token, char** role)
 {
-    if (crypto_pwhash_str_verify(auth->passwordHash, password, strlen(password)) != 0){
+    UserRecord* record = getUser(auth, username);
+    if (!record){
+        return -2;
+    }
+    if (crypto_pwhash_str_verify(record->passwordHash, password, strlen(password)) != 0){
         return -1;
     }
 
-    current_user.username = auth->username;
-    current_user.role = auth->role;
+    current_user.username = record->username;
+    current_user.role = record->role;
 
     sodium_memzero(password, strlen(password));
 
@@ -68,7 +109,7 @@ int loginUser(Auth* auth, char *username, char *password, char** token)
 }
 
 
-int signUpUser(Auth* auth, char *username, char *password, char **token)
+int signUpUser(Auth* auth, char *username, char *password, char* role, char **token)
 {
     char hashed_password[crypto_pwhash_STRBYTES];
 
@@ -80,9 +121,8 @@ int signUpUser(Auth* auth, char *username, char *password, char **token)
     {
         return -1;
     }
-    auth->username =  custom_strdup(username);
-    auth->passwordHash = custom_strdup(hashed_password);
-    // generateLoginToken(username, token);
+
+    addUser(auth, username, hashed_password, role);
     return 0;
 }
 
@@ -96,8 +136,9 @@ int checkUserToken(Auth* auth, char *token)
                         (u_char*)token, tokenLength, publicKey) != 0) {
         return -1;
     }
-    current_user.username = custom_strdup((char*)username);
-    current_user.role = auth->role;
+    UserRecord* record =  getUser(auth, (char*)username);
+    current_user.username = record->username;
+    current_user.role = record->role;
     return 0;
 }
 

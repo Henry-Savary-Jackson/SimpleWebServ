@@ -118,7 +118,7 @@ int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk, in
 int inflateChunk(z_streamp strm, int outSize, char *outChunk);
 
 
-int encodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd);
+int encodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void* args);
 
 int parseCookies(char *cookiesStr, HTTPRequest *request);
 int encodeCookies(HTTPResponse *response);

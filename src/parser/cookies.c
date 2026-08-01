@@ -172,5 +172,5 @@ void initCookie(Cookie *cookie, char *name, char *value)
     cookie->value = value;
     cookie->maxAge = COOKIE_DEFAULT_MAX_AGE;
     cookie->samesite = STRICT;
-    cookie->secure = false;
+    cookie->secure = true;
 }

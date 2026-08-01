@@ -528,7 +528,14 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
                 ret = -1;
                 goto error;
             case EISDIR:
-                tryAgain = handleDirectory(path, request, response, handler) == 0;
+                char * valueList = getQueryParam(request, "list");
+                if (valueList){
+                    ret = handleDirectoryList(pathStr, request, response, handler, connfd);
+                    goto closefile;
+                }
+
+                tryAgain = true;
+                handleDirectory(path, request, response, handler);
                 break;
             case EINTR:
                 // process was just handling a signal, unlikely to happen
@@ -627,8 +634,8 @@ Route getPrivateFSHandlerObj(FileSystemHandler *fsHandler)
     initRoute(&route, fsHandler->pathPrefix, methods, sizeof(methods) / sizeof(enum http_method));
     route.handlerObject = fsHandler;
     route.handleCallback = FSHandlerCallbackPrivate;
-    cc_array_add(route.filterChain, &csrfFilter);
-    cc_array_add(route.filterChain, &authFilter);
+    addFilterToChain(&route, csrfFilter, NULL);
+    addFilterToChain(&route, authFilter, NULL);
     return route;
 }
 

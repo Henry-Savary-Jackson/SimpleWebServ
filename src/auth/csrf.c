@@ -49,7 +49,7 @@ Route getCSRFRoute(){
     return route;
 }
 
-int csrfFilter(HTTPRequest* request, HTTPResponse * response, int connfd){
+int csrfFilter(HTTPRequest* request, HTTPResponse * response, int connfd, void * args){
     // try query paramso
     char * givenCSRF = getQueryParam(request, AUTH_CSRF_FORM_TOKEN_NAME);
     if (givenCSRF){

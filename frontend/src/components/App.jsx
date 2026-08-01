@@ -17,7 +17,6 @@ export default function App() {
 
     let [cookies, setCookie, removeCookie] = useCookies()
 
-
     return <MemoryRouter>
         <CSRFProvider>
             <Route element={<Login />} path="/login" />

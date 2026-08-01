@@ -1,20 +1,24 @@
+#include "cc_array.h"
 #include "http.h"
 #include "parser.h"
-#include <server.h>
 #include <auth.h>
+#include <server.h>
 #include <uuid/uuid.h>
 
 
-int authFilter(HTTPRequest* request, HTTPResponse * response, int connfd){
-    char * authCookie = getCookieRequest(request,AUTH_COOKIE_REMEMBER_ME_NAME  );
-    if (authCookie == NULL){
+int authFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args)
+{
+    char *authCookie = getCookieRequest(request, AUTH_COOKIE_REMEMBER_ME_NAME);
+    if (authCookie == NULL)
+    {
         // handle no cookie found response
         makeUnauthorized(response);
         return -1;
     }
 
     int result = checkUserToken(&auth, authCookie);
-    if (result){
+    if (result)
+    {
         makeUnauthorized(response);
         return -2;
     }
@@ -22,19 +26,49 @@ int authFilter(HTTPRequest* request, HTTPResponse * response, int connfd){
     return 0;
 }
 
-int sessionIDFilter(HTTPRequest* request, HTTPResponse * response, int connfd){
-    char * sessionID = getCookieRequest(request,AUTH_COOKIE_SESSIONID_NAME);
+int roleFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args)
+{
+    struct
+    {
+        char **roles;
+        int n_roles;
+    } *allowed_roles = args;
 
-    if (!sessionID){
+    for (int i = 0; i < allowed_roles->n_roles; i++)
+    {
+        if (!strcmp(current_user.role, allowed_roles->roles[i]))
+        {
+            return 0;
+        }
+    }
+
+
+    makeUnauthorized(response);
+    return -1;
+}
+
+void addRoleFilter(Route* route,  char** roles, int n){
+    struct {char** roles; int n;}* obj = custom_alloc(sizeof(char**)+ sizeof(int));
+    obj->roles = (char**)custom_calloc(n, sizeof(char*));
+    memcpy((void*)obj->roles, (void*)roles, sizeof(char*)*n);
+    obj->n = n;
+    addFilterToChain(route, roleFilter, obj);
+}
+
+int sessionIDFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args)
+{
+    char *sessionID = getCookieRequest(request, AUTH_COOKIE_SESSIONID_NAME);
+
+    if (!sessionID)
+    {
         uuid_t binSessionID;
         uuid_generate_random(binSessionID);
-        char * newSessionID = custom_alloc(AUTH_SESSION_TOKEN_SIZE);
+        char *newSessionID = custom_alloc(AUTH_SESSION_TOKEN_SIZE);
         uuid_unparse_lower(binSessionID, newSessionID);
 
         Cookie cookie;
-        initCookie(&cookie, AUTH_COOKIE_SESSIONID_NAME, newSessionID );
+        initCookie(&cookie, AUTH_COOKIE_SESSIONID_NAME, newSessionID);
         setCookieResponse(response, &cookie);
     }
     return 0;
-
 }

@@ -101,7 +101,7 @@ int prepareHTTPRequestMetadata(HTTPRequest *request, HTTPResponse* response)
 
 
 
-int encodingFilter(HTTPRequest* request, HTTPResponse * response, int connfd){
+int encodingFilter(HTTPRequest* request, HTTPResponse * response, int connfd, void* args){
     int ret = 0;
 
     if ((ret = prepareHTTPRequestMetadata(request,response))){

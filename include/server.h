@@ -64,6 +64,7 @@ void shutDownServer(Server* server);
 void initRouter(Router *router);
 void initRoute(Route* route, Path prefixPattern, enum http_method * supportedMethods, int numSupportedMethods);
 void addRoute(Router* router, Route* handler );
+void addFilterToChain(Route* route, int (*handle)(HTTPRequest *, HTTPResponse *, int , void * ), void* args);
 int longestPrefixMatch(Router* router, HTTPRequest* request, Route** chosenRoute);
 int checkHTTPMethod(Route *route, HTTPRequest *request);
 void addFileSystemHandlerServer(Server* server, FileSystemHandler* handler);
@@ -76,3 +77,4 @@ void freeRouter(Router* router);
 
 void initFileSystemHandler(FileSystemHandler* fsHandler, char * pathPrefix, char* webroot);
 void addFileSystemHandler(Router* router, FileSystemHandler* fsHandler);
+int handleDirectoryList(char * path, HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd);

@@ -104,20 +104,22 @@ int main(int argc, char *argv[])
     initFileSystemHandler(&handler, "/test", "webroot");
     addFileSystemHandlerServer(server, &handler);
 
+    //
+    AuthHandler authHandler;
+    initAuthHandler(&authHandler, "/login", "/signup", "/admin", "html/index.html");
+    addAuthenticationHandler(server, &authHandler);
+
     FileSystemHandler handlerStatic;
-    initFileSystemHandler(&handlerStatic, "/static", "html");
+    initFileSystemHandler(&handlerStatic, "/admin", "html");
     Route routeStatic= getPublicFSHandlerObj(&handlerStatic);
     addRoute(&server->router, &routeStatic);
 
-    AuthHandler authHandler;
-    initAuthHandler(&authHandler, "/login", "/signup", "html/login.html", "html/signup.html");
-    addAuthenticationHandler(server, &authHandler);
 
     Route csrfRoute = getCSRFRoute();
     addRoute(&server->router, &csrfRoute);
 
     char * token;
-    signUpUser(&auth, "admin", "admin", &token);
+    signUpUser(&auth, "admin", "admin", "admin",&token);
 
     bindSocket(server);
 

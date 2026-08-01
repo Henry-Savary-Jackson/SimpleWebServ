@@ -70,16 +70,19 @@ int handleRequestRouter(Route *route, HTTPRequest *request, HTTPResponse *respon
     CC_ArrayIter iter;
     cc_array_iter_init(&iter, route->filterChain);
 
-    int (*handle)(HTTPRequest *request, HTTPResponse *response, int connfd);
+    struct {
+    int (*handle)(HTTPRequest *request, HTTPResponse *response, int connfd, void * args);
+    void * args;
+    } filter;
     enum cc_stat stat;
-    while ((stat = cc_array_iter_next(&iter, (void **)&handle)) != CC_ITER_END)
+    while ((stat = cc_array_iter_next(&iter, (void **)&filter)) != CC_ITER_END)
     {
         // if
         if (stat != CC_OK)
         {
             return -1;
         }
-        int result = handle(request, response, connfd);
+        int result = filter.handle(request, response, connfd, filter.args);
         //
         if (result < 0)
         {
@@ -89,6 +92,15 @@ int handleRequestRouter(Route *route, HTTPRequest *request, HTTPResponse *respon
     return route->handleCallback(request, response, route->handlerObject, connfd);
 }
 
+void addFilterToChain(Route* route, int (*handle)(HTTPRequest *, HTTPResponse *, int , void * ), void* args){
+    struct {
+        int (*handle)(HTTPRequest *, HTTPResponse *, int , void * );
+        void* args;
+    } * filterObj = custom_alloc(sizeof(handle)+ sizeof(args));
+    filterObj->args = args;
+    filterObj->handle = handle;
+    cc_array_add(route->filterChain, filterObj);
+}
 
 void initRoute(Route *route, Path prefixPattern, enum http_method *supportedMethods, int numSupportedMethods)
 {
@@ -103,8 +115,8 @@ void initRoute(Route *route, Path prefixPattern, enum http_method *supportedMeth
     cc_array_new_conf(&conf, &route->filterChain);
     cc_array_new_conf(&conf, &route->allowedMethods);
 
-    cc_array_add(route->filterChain, encodingFilter);
-    cc_array_add(route->filterChain, sessionIDFilter);
+    addFilterToChain(route, encodingFilter, NULL);
+    addFilterToChain(route, sessionIDFilter, NULL);
     for (int i = 0; i < numSupportedMethods; i++)
     {
         enum http_method *method_p = custom_alloc(sizeof(enum http_method));
