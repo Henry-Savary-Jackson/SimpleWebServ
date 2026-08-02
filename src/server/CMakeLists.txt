@@ -10,6 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_BUILD_TYPE Debug)
 
-add_library(server STATIC server.c fshandler.c router.c )
+add_library(server STATIC server.c fshandler.c router.c  dirlist.c)
 target_include_directories( server PUBLIC ../../include)
 target_include_directories( server  PUBLIC ../../lib/collectc/src/include)

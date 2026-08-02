@@ -12,14 +12,14 @@ int authFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *a
     if (authCookie == NULL)
     {
         // handle no cookie found response
-        makeUnauthorized(response);
+        makeUnauthorized(response, "Remember-me cookie is missing!");
         return -1;
     }
 
     int result = checkUserToken(&auth, authCookie);
     if (result)
     {
-        makeUnauthorized(response);
+        makeUnauthorized(response, "Remember-me token is incorrect!");
         return -2;
     }
 
@@ -42,14 +42,13 @@ int roleFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *a
         }
     }
 
-
-    makeUnauthorized(response);
+    makeForbidden(response, "User doesn't have the required role!");
     return -1;
 }
 
 void addRoleFilter(Route* route,  char** roles, int n){
-    struct {char** roles; int n;}* obj = custom_alloc(sizeof(char**)+ sizeof(int));
-    obj->roles = (char**)custom_calloc(n, sizeof(char*));
+    struct {char** roles; int n;}* obj = glbl_custom_alloc(sizeof(char**)+ sizeof(int));
+    obj->roles = (char**)glbl_custom_calloc(n, sizeof(char*));
     memcpy((void*)obj->roles, (void*)roles, sizeof(char*)*n);
     obj->n = n;
     addFilterToChain(route, roleFilter, obj);
@@ -61,14 +60,11 @@ int sessionIDFilter(HTTPRequest *request, HTTPResponse *response, int connfd, vo
 
     if (!sessionID)
     {
-        uuid_t binSessionID;
-        uuid_generate_random(binSessionID);
-        char *newSessionID = custom_alloc(AUTH_SESSION_TOKEN_SIZE);
-        uuid_unparse_lower(binSessionID, newSessionID);
-
+        sessionID = generateSessionID();
         Cookie cookie;
-        initCookie(&cookie, AUTH_COOKIE_SESSIONID_NAME, newSessionID);
+        initCookie(&cookie, AUTH_COOKIE_SESSIONID_NAME, sessionID);
         setCookieResponse(response, &cookie);
     }
+    current_user.sessionID = sessionID;
     return 0;
 }

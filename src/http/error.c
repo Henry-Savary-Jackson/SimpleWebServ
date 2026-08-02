@@ -17,47 +17,47 @@ int makeErrorResponse(HTTPResponse *response, int status, char *message)
     // prepareHTTPResponseMetadata(response);
     return 0;
 }
-int makeBadRequest(HTTPResponse *response)
+int makeBadRequest(HTTPResponse *response, char * reason)
 {
-    return makeErrorResponse(response, HTTP_BAD_REQUEST, NULL);
+    return makeErrorResponse(response, HTTP_BAD_REQUEST, reason);
 }
-int makeUnauthorized(HTTPResponse *response)
+int makeUnauthorized(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_UNAUTHORIZED, NULL);
+    return makeErrorResponse(response, HTTP_UNAUTHORIZED, reason);
 }
-int makeForbidden(HTTPResponse *response)
+int makeForbidden(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_FORBIDDEN, NULL);
+    return makeErrorResponse(response, HTTP_FORBIDDEN, reason);
 }
-int makeNotFound(HTTPResponse *response)
+int makeNotFound(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_NOT_FOUND, NULL);
+    return makeErrorResponse(response, HTTP_NOT_FOUND, reason);
 }
-int makeContentLengthRequired(HTTPResponse *response)
+int makeContentLengthRequired(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_CONTENT_LENGTH_REQUIRED, NULL);
+    return makeErrorResponse(response, HTTP_CONTENT_LENGTH_REQUIRED, reason);
 }
-int makeMethodNotSupported(HTTPResponse *response)
+int makeMethodNotSupported(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_METHOD_UNSUPPORTED, NULL);
+    return makeErrorResponse(response, HTTP_METHOD_UNSUPPORTED, reason);
 }
-int makeNotAccepable(HTTPResponse *response)
+int makeNotAccepable(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_NOT_ACCEPTED, NULL);
+    return makeErrorResponse(response, HTTP_NOT_ACCEPTED, reason);
 }
-int makeMediaTypeNotSupported(HTTPResponse *response)
+int makeMediaTypeNotSupported(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_UNSUPPORTED_MEDIA_TYPE, NULL);
+    return makeErrorResponse(response, HTTP_UNSUPPORTED_MEDIA_TYPE,reason);
 }
-int makeServerErrror(HTTPResponse *response)
+int makeServerErrror(HTTPResponse *response, char * reason)
 {
 
-    return makeErrorResponse(response, HTTP_SERVER_ERROR, NULL);
+    return makeErrorResponse(response, HTTP_SERVER_ERROR, reason);
 }

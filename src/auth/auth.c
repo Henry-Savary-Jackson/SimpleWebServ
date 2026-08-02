@@ -1,5 +1,6 @@
 #include "cc_common.h"
 #include "cc_hashtable.h"
+#include "http.h"
 #include "server.h"
 #include <argon2.h>
 #include <auth.h>
@@ -16,7 +17,7 @@
 
 #define KEY_PATH "keys.bin"
 
-thread_local User current_user = {NULL, NULL};
+thread_local User current_user = {NULL, NULL, NULL};
 CC_HashTable *sessionIDToCSRF = NULL;
 
 unsigned char publicKey[crypto_sign_PUBLICKEYBYTES];
@@ -38,21 +39,15 @@ Auth auth ;
 
 #define MAX_USERNAME 128
 
-void initAuth(Auth auth){
+void initAuth(Auth* auth){
     CC_HashTableConf conf;
-    cc_hashtable_conf_init(&conf);
-    conf.key_length = KEY_LENGTH_VARIABLE;
-    conf.hash = STRING_HASH;
-    conf.key_compare = CC_CMP_STRING;
-    conf.mem_alloc = custom_alloc;
-    conf.mem_calloc = custom_calloc;
-    conf.mem_free = custom_free;
-    cc_hashtable_new_conf(&conf,&auth.users);
+    configureHTTPDictGlobal(&conf);
+    cc_hashtable_new_conf(&conf,&auth->users);
 }
 
 UserRecord* getUser(Auth* auth, char* username){
     UserRecord* out = NULL;
-    enum cc_stat stat = cc_hashtable_get(auth->users,username, (void**)out );
+    enum cc_stat stat = cc_hashtable_get(auth->users,username, (void**)&out );
     if (stat != CC_OK){
         return NULL;
     }
@@ -60,12 +55,12 @@ UserRecord* getUser(Auth* auth, char* username){
 }
 
 UserRecord* addUser(Auth* auth, char * username, char * passwordHash,char* role){
-    UserRecord* user= custom_alloc(sizeof(User));
+    UserRecord* user= glbl_custom_alloc(sizeof(User));
 
-    user->username = custom_strdup( username);
-    user->passwordHash =custom_strdup( passwordHash);
-    user->role = custom_strdup(role);
-    enum cc_stat stat = cc_hashtable_add(auth->users,username, user );
+    user->username = glbl_custom_strdup( username);
+    user->passwordHash =glbl_custom_strdup( passwordHash);
+    user->role = glbl_custom_strdup(role);
+    enum cc_stat stat = cc_hashtable_add(auth->users,user->username, user );
     if (stat != CC_OK){
         return NULL;
     }
@@ -76,15 +71,24 @@ int initKeyPair(){
     return crypto_sign_keypair(publicKey, secretKey);
 }
 
+char * generateSessionID(){
+    uuid_t binSessionID;
+    uuid_generate_random(binSessionID);
+    char *newSessionID = custom_alloc(AUTH_SESSION_TOKEN_SIZE);
+    uuid_unparse_lower(binSessionID, newSessionID);
+    return newSessionID;
+}
+
 int generateLoginToken(char* username, char **token){
     int message_len = strlen(username);
     unsigned char output[MAX_USERNAME+ crypto_sign_BYTES];
     unsigned long long signed_message_len;
-    crypto_sign_detached(output,&signed_message_len, (unsigned char*)username, message_len, secretKey );
-    *token =custom_alloc(signed_message_len+1);
-    memcpy(*token, output ,signed_message_len);
-    // null terminate it
-    *token[signed_message_len] = 0;
+    crypto_sign(output,&signed_message_len, (unsigned char*)username, message_len, secretKey );
+    output[signed_message_len] = 0 ;
+
+    size_t lengthToken =sodium_base64_encoded_len( signed_message_len, sodium_base64_VARIANT_URLSAFE);
+    *token = custom_alloc(lengthToken);
+    *token = sodium_bin2base64(*token, lengthToken, output, signed_message_len, sodium_base64_VARIANT_URLSAFE);
     return 0;
 }
 
@@ -99,8 +103,10 @@ int loginUser(Auth* auth, char *username, char *password, char** token, char** r
         return -1;
     }
 
-    current_user.username = record->username;
+    current_user.username = record->username ;
     current_user.role = record->role;
+
+    *role = record->role;
 
     sodium_memzero(password, strlen(password));
 
@@ -116,8 +122,8 @@ int signUpUser(Auth* auth, char *username, char *password, char* role, char **to
     if (crypto_pwhash_str(hashed_password,
                           password,
                           strlen(password),
-                          crypto_pwhash_OPSLIMIT_SENSITIVE,
-                          crypto_pwhash_MEMLIMIT_SENSITIVE) != 0)
+                          crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                          crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0)
     {
         return -1;
     }
@@ -129,14 +135,24 @@ int signUpUser(Auth* auth, char *username, char *password, char* role, char **to
 int checkUserToken(Auth* auth, char *token)
 {
     unsigned long long tokenLength= strlen(token);
+    u_char tokenBin[strlen(token)+1];
+    size_t binLength = 0;
+    int ret = sodium_base642bin((u_char*)tokenBin, sizeof(tokenBin), token, tokenLength, NULL, &binLength, NULL, sodium_base64_VARIANT_URLSAFE );
+    if (ret){
+        return ret;
+    }
 
     unsigned char username[MAX_USERNAME];
     unsigned long long unsigned_message_len;
     if (crypto_sign_open(username, &unsigned_message_len,
-                        (u_char*)token, tokenLength, publicKey) != 0) {
+                        tokenBin, binLength, publicKey) != 0) {
         return -1;
     }
+    username[unsigned_message_len] = 0; // nulterm
     UserRecord* record =  getUser(auth, (char*)username);
+    if (!record){
+        return -2;
+    }
     current_user.username = record->username;
     current_user.role = record->role;
     return 0;

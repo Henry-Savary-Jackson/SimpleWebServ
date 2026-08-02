@@ -117,7 +117,7 @@ void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args)
 void strToLower(char * str, char** out ){
     int len = (int)strlen(str);
     *out = custom_alloc(len+1);
-    for (int i = 0; i < len; i ++){
+    for (int i = 0; i <= len; i ++){
         (*out)[i] = (char) tolower((int)str[i]);
     }
 }

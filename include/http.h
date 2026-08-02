@@ -186,6 +186,7 @@ void freeHTTPResponse(HTTPResponse *response);
 
 
 void configureHTTPDict(CC_HashTableConf* conf);
+void configureHTTPDictGlobal(CC_HashTableConf *conf);
 void setRequest(HTTPResponse *resp, HTTPRequest *resq);
 char* getValueDict(CC_HashTable *dict, char *key);
 CC_Deque* getValuesDict(CC_HashTable *dict, char *key);
@@ -207,13 +208,14 @@ void putKVDict(CC_HashTable* dict,char *key, char *value);
 void setResponseBody(HTTPResponse *response, char *buffer, int contentLength) ;
 void init_code_to_phrase();
 
+int makeSuccessEmpty(HTTPResponse* response);
 int makeErrorResponse(HTTPResponse* response, int status, char * message);
-int makeBadRequest(HTTPResponse* response); //
-int makeUnauthorized(HTTPResponse* response);
-int makeForbidden(HTTPResponse* response);
-int makeNotFound(HTTPResponse* response);
-int makeContentLengthRequired(HTTPResponse* response);
-int makeMethodNotSupported(HTTPResponse* response);
-int makeNotAccepable(HTTPResponse* response);
-int makeMediaTypeNotSupported(HTTPResponse* response);
-int makeServerErrror(HTTPResponse* response);
+int makeBadRequest(HTTPResponse* response, char * reason); //
+int makeUnauthorized(HTTPResponse* response, char * reason);
+int makeForbidden(HTTPResponse* response, char * reason);
+int makeNotFound(HTTPResponse* response, char * reason);
+int makeContentLengthRequired(HTTPResponse* response, char * reason);
+int makeMethodNotSupported(HTTPResponse* response, char * reason);
+int makeNotAccepable(HTTPResponse* response, char * reason);
+int makeMediaTypeNotSupported(HTTPResponse* response, char * reason);
+int makeServerErrror(HTTPResponse* response, char * reason);

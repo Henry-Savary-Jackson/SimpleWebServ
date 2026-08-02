@@ -96,6 +96,7 @@ int main(int argc, char *argv[])
     if (loadKeyPair()){
         printf("failed to load keypair!");
     }
+    initAuth(&auth);
 
     initServer(&server, "localhost", "mywebserver", "webroot", MAX_WORKERS);
     setServerAddress(server, addr, (int)port);

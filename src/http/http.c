@@ -201,6 +201,16 @@ void configureHTTPDict(CC_HashTableConf *conf)
     conf->mem_calloc = custom_calloc;
     conf->mem_free = custom_free;
 }
+void configureHTTPDictGlobal(CC_HashTableConf *conf)
+{
+    cc_hashtable_conf_init(conf);
+    conf->key_length = KEY_LENGTH_VARIABLE;
+    conf->hash = STRING_HASH;
+    conf->key_compare = CC_CMP_STRING;
+    conf->mem_alloc =glbl_custom_alloc;
+    conf->mem_calloc = glbl_custom_calloc;
+    conf->mem_free = glbl_custom_free;
+}
 
 
 int initHTTPRequest(HTTPRequest *request)
@@ -308,6 +318,7 @@ void init_code_to_phrase()
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_METHOD_UNSUPPORTED, (char *)HTTP_METHOD_UNSUPPORTED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_ACCEPTED, (char *)HTTP_NOT_ACCEPTED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_CONTENT_LENGTH_REQUIRED, (char *)HTTP_CONTENT_LENGTH_REQUIRED_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_UNSUPPORTED_MEDIA_TYPE, (char *)HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
 
@@ -352,4 +363,15 @@ void putKVDict(CC_HashTable *dict, char *key, char *value)
         cc_hashtable_add(dict, key, valueQueue);
     }
     cc_deque_add_last(valueQueue, custom_strdup(value));
+}
+
+
+
+int makeSuccessEmpty(HTTPResponse* response){
+    response->contentEncoding = IDENTITY_ENCODING;
+    response->transferEncoding = IDENTITY_ENCODING;
+    response->statusCode = HTTP_OK;
+    response->contentLength = 0;
+    response->body = NULL;
+    response->contentType = "text/plain";
 }

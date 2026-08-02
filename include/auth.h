@@ -9,7 +9,8 @@ typedef struct Auth_s Auth;
 typedef struct
 {
     char *username;
-    char *role
+    char *role;
+    char * sessionID;
 } User;
 
 extern thread_local User current_user;
@@ -25,6 +26,7 @@ extern CC_HashTable *sessionIDToCSRF;
 #define AUTH_CSRF_TOKEN_SIZE 37
 #define AUTH_SESSION_TOKEN_SIZE 37
 
+void initAuth(Auth* auth);
 
 int loginUser(Auth *auth, char *username, char *password, char **token, char** role);
 int signUpUser(Auth *auth, char *username, char *password,char *role, char **token);
@@ -55,4 +57,5 @@ int authFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void* a
 void addRoleFilter(Route* route,  char** roles, int n);
 int sessionIDFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void* args);
 int csrfFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void * args);
+char * generateSessionID();
 Route getCSRFRoute();

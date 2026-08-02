@@ -73,7 +73,7 @@ int handleRequestRouter(Route *route, HTTPRequest *request, HTTPResponse *respon
     struct {
     int (*handle)(HTTPRequest *request, HTTPResponse *response, int connfd, void * args);
     void * args;
-    } filter;
+    }* filter;
     enum cc_stat stat;
     while ((stat = cc_array_iter_next(&iter, (void **)&filter)) != CC_ITER_END)
     {
@@ -82,7 +82,7 @@ int handleRequestRouter(Route *route, HTTPRequest *request, HTTPResponse *respon
         {
             return -1;
         }
-        int result = filter.handle(request, response, connfd, filter.args);
+        int result = filter->handle(request, response, connfd, filter->args);
         //
         if (result < 0)
         {

@@ -13,18 +13,12 @@
 int csrfHandler(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd){
     AuthHandler* authHandler = handler;
 
-    char * sessionID = getCookieRequest(request, AUTH_COOKIE_SESSIONID_NAME);
-    if (!sessionID){
-        sessionID = custom_alloc(1<<7);
-        uuid_generate_random((u_char*)sessionID);
-        goto make_new_csrf;
-    }
+    char * sessionID = current_user.sessionID;
 
     char * csrfToken = getCSRFForSession(sessionID);
     if (!csrfToken){
         goto make_new_csrf;
     }
-
 
 send_resp:
     setResponseBody(response, csrfToken, AUTH_CSRF_TOKEN_SIZE-1);
@@ -63,7 +57,7 @@ int csrfFilter(HTTPRequest* request, HTTPResponse * response, int connfd, void *
     }
 
 check_csrf:
-    char *sessionID = getCookieRequest(request, AUTH_COOKIE_SESSIONID_NAME);
+    char *sessionID = current_user.sessionID;
     if (!sessionID){
         goto error;
     }
@@ -87,11 +81,11 @@ char *getCSRFForSession(char *sessionId){
     return csrf;
 }
 char *addCSRFToSession(char *sessionId){
-    char * csrfPtr = custom_alloc(AUTH_CSRF_TOKEN_SIZE);
+    char * csrfPtr = glbl_custom_alloc(AUTH_CSRF_TOKEN_SIZE);
     uuid_t binCSRF;
     uuid_generate_random(binCSRF);
     uuid_unparse_lower(binCSRF, csrfPtr);
-    enum cc_stat stat_add_new = cc_hashtable_add(sessionIDToCSRF,sessionId, csrfPtr);
+    enum cc_stat stat_add_new = cc_hashtable_add(sessionIDToCSRF,glbl_custom_strdup(sessionId), csrfPtr);
     if (stat_add_new != CC_OK){
         // some error
         return NULL;

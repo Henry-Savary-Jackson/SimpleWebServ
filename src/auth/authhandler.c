@@ -22,10 +22,10 @@ int readFile(char *path, HTTPRequest *request, HTTPResponse *response, void *han
             case EINTR:
                 break;
             case EACCES:
-                makeNotFound(response);
+                makeNotFound(response, "HTML file not found!");
                 return -1;
             default:
-                makeServerErrror(response);
+                makeServerErrror(response, "Server Error!");
                 return -1;
             }
         }
@@ -67,14 +67,14 @@ int loginHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *han
 
     if (!username)
     {
-        makeBadRequest(response);
+        makeBadRequest(response, "Username is missing!");
         return -1;
     }
 
     char *password = getQueryParam(request, "password");
     if (!password)
     {
-        makeBadRequest(response);
+        makeBadRequest(response, "Password is missing!");
         return -1;
     }
 
@@ -85,10 +85,14 @@ int loginHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *han
         case 0:
             break;
         case -2:
-            makeNotFound(response);
+            makeNotFound(response, "User doesn't exist.");
+            return -1;
+        case -1:
+            // bad pwd
+            makeBadRequest(response, "Wrong Password!");
             return -1;
         default:
-            makeServerErrror(response);
+            makeServerErrror(response, "Server Error");
             return -1;
     }
 
@@ -106,6 +110,7 @@ int loginHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *han
     usernameCookie.httpOnly = false;
     setCookieResponse(response, &usernameCookie );
 
+    sendResponse(response,  connfd);
     return 0;
 }
 int SignUpHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
@@ -115,19 +120,19 @@ int SignUpHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *ha
 
     if (!username)
     {
-        response->statusCode = HTTP_BAD_REQUEST;
+        makeBadRequest(response, "Username is missing!");
         return -1;
     }
     char *password = getQueryParam(request, "password");
     if (!password)
     {
-        response->statusCode = HTTP_BAD_REQUEST;
+        makeBadRequest(response, "Password is missing!");
         return -1;
     }
     char *role = getQueryParam(request, "role");
     if (!role)
     {
-        response->statusCode = HTTP_BAD_REQUEST;
+        makeBadRequest(response, "Role is missing!");
         return -1;
     }
 
@@ -135,11 +140,12 @@ int SignUpHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *ha
     int ret = signUpUser(&auth, username, password, role,&token);
     if (ret)
     {
-        response->statusCode = HTTP_SERVER_ERROR;
+        makeServerErrror(response, "Failed to hash password.");
         return -1;
     }
 
-    // setCookie(request, AUTH_COOKIE_REMEMBER_ME_NAME, token);
+    makeSuccessEmpty(response);
+    sendResponse(response,  connfd);
 
     return 0;
 }
@@ -169,7 +175,8 @@ Route getSignUpRoute(AuthHandler *authHandler)
     route.handlerObject = authHandler;
     addFilterToChain(&route, csrfFilter, NULL);
     addFilterToChain(&route, authFilter, NULL);
-    addRoleFilter(&route, (char **)"admin", 1);
+    char * role = "admin";
+    addRoleFilter(&route, &role, 1);
 
     // only admins can add other users
     return route;

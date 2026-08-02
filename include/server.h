@@ -13,6 +13,11 @@ void* custom_calloc(size_t blocks,size_t size);
 void custom_free(void* ptr);
 char* custom_strdup(char* str);
 
+void* glbl_custom_alloc(size_t size);
+void* glbl_custom_calloc(size_t blocks,size_t size);
+void glbl_custom_free(void* ptr);
+char* glbl_custom_strdup(char* str);
+
 typedef struct
 {
     CC_Array *routes;

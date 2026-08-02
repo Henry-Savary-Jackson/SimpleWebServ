@@ -2,10 +2,12 @@
 #include "parser.h"
 #include "server.h"
 #include "utils.h"
+#include <asm-generic/errno-base.h>
 #include <dirent.h>
 #include <errno.h>
 #include <linux/limits.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
@@ -15,7 +17,7 @@ int listDir(char* path, GrowingBuffer* outputBuffer ){
     if (!dir){
         return errno;
     }
-    int pathLen = strlen(path);
+    int dirPathLen = strlen(path);
     struct dirent* entry;
     char entry_path[PATH_MAX];
     strcpy(entry_path, path);
@@ -25,7 +27,8 @@ int listDir(char* path, GrowingBuffer* outputBuffer ){
             continue;
         }
         bool isDir = (bool)(entry->d_type & DT_DIR);
-        entry_path[pathLen] = 0;
+        entry_path[dirPathLen] = 0;
+        strcat(entry_path, PATH_SEP_STR);
         strcat(entry_path, entry->d_name);
 
         char* mimetype = isDir? "DIR": getMimeTypeForFile(entry_path);
@@ -54,7 +57,13 @@ int handleDirectoryList(char * path, HTTPRequest *request, HTTPResponse *respons
 
     int result = listDir(path, &buffer);
     if (result){
-        return result;
+        switch (result){
+            case EACCES:
+                makeServerErrror(response, "Server has insufficient permissions to read folder");
+                return -1;
+            default:
+                return -1;
+        }
     }
 
     setResponseBody(response, buffer.ptr, buffer.size);

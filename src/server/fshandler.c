@@ -212,7 +212,7 @@ int handleDELETEFile(HTTPRequest *request, HTTPResponse *response, FileSystemHan
 
     if (access(pathStr, F_OK))
     {
-        makeNotFound(response);
+        makeNotFound(response, "File not found!");
         goto end;
     }
 
@@ -294,7 +294,7 @@ int handlePOSTFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandl
     if (!openedFile)
     {
         // still null, it failed, send response back
-        makeNotFound(response);
+        makeNotFound(response, "File not found!");
         ret = -1;
         goto finish;
     }
@@ -310,14 +310,14 @@ int handlePOSTFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandl
 
     if (ret)
     {
-        makeBadRequest(response);
+        makeBadRequest(response, "Failed with Transfer-encoding!");
         goto finish;
     }
 
     if (request->contentLength == 0)
     {
         unlink(pathStr);
-        ret = mkdir(pathStr, 7);
+        ret = mkdir(pathStr, 0777);
         goto finish;
     }
 
@@ -325,12 +325,20 @@ int handlePOSTFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandl
 
     if (ret)
     {
-        makeBadRequest(response);
-        goto finish;
+        makeBadRequest(response, "Failed with Content Encoding!");
+        goto success;
     }
     // if you didnt using chunked, then start writing the final body
     ret = writeToFile(openedFile, request->body, request->contentLength);
 
+    if (ret)
+    {
+
+        makeServerErrror(response, "Failed to write to file!");
+        goto finish;
+    }
+
+success:
     sendResponse(response, connfd);
 finish:
     if (openedFile)
@@ -524,12 +532,13 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
             {
             case ENOTDIR:
             case EPERM:
-                makeNotFound(response);
+                makeNotFound(response, "Server has insufficient permission to read the file!");
                 ret = -1;
                 goto error;
             case EISDIR:
-                char * valueList = getQueryParam(request, "list");
-                if (valueList){
+                char *valueList = getQueryParam(request, "list");
+                if (valueList)
+                {
                     ret = handleDirectoryList(pathStr, request, response, handler, connfd);
                     goto closefile;
                 }
@@ -562,7 +571,7 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
     if (access(pathStr, F_OK) == -1)
     {
         ret = -1;
-        makeNotFound(response);
+        makeNotFound(response, "File doesn't exist!");
         goto error;
     }
 
@@ -570,10 +579,15 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
     {
 
         ret = -1;
-        makeMediaTypeNotSupported(response);
+        makeMediaTypeNotSupported(response, "Media Type not supported for this file!");
         goto error;
     }
     ret = sendBodyGET(openedFile, response, handler, connfd);
+    if (ret)
+    {
+        makeServerErrror(response, "Failed to read file!");
+        goto error;
+    }
 
 closefile:
     if (openedFile)

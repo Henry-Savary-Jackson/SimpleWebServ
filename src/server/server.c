@@ -27,6 +27,7 @@
 #define MAX_CONN 5
 
 thread_local Arena arena;
+Arena glblArena;
 
 void *custom_alloc(size_t size)
 {
@@ -45,6 +46,20 @@ void custom_free(void *ptr)
 char *custom_strdup(char *str)
 {
     return arena_strdup(&arena, str);
+}
+
+void * glbl_custom_alloc(size_t size)  { return arena_alloc(&glblArena, size);};
+void * glbl_custom_calloc(size_t blocks, size_t size){
+    void * ptr = glbl_custom_alloc(blocks*size);
+    memset(ptr, 0, blocks*size);
+    return ptr;
+};
+
+void glbl_custom_free(void*ptr){
+    arena_trim(&glblArena);
+}
+char * glbl_custom_strdup( char* str){
+    return arena_strdup(&glblArena, str);
 }
 
 void initServer(Server **server_p, char *host, char *name, char *webroot, int maxWorkers)
@@ -66,7 +81,7 @@ void initServer(Server **server_p, char *host, char *name, char *webroot, int ma
     initRouter(&server->router);
 
     CC_HashTableConf conf;
-    configureHTTPDict(&conf);
+    configureHTTPDictGlobal(&conf);
     cc_hashtable_new_conf(&conf, &sessionIDToCSRF);
 }
 
@@ -189,6 +204,9 @@ void handleConnection(int connfd, Server *server)
     bool keepAlive = true;
     while (keepAlive)
     {
+        // reset current use
+        memset(&current_user, 0, sizeof(current_user));
+
         HTTPRequest request;
         initHTTPRequest(&request);
 
@@ -202,7 +220,7 @@ void handleConnection(int connfd, Server *server)
         int result = scanFirstLine(&request);
         if (result == -1)
         {
-            makeBadRequest(&response);
+            makeBadRequest(&response, "Failed to read first line!");
             goto send_error_resp;
         }
 
@@ -210,7 +228,7 @@ void handleConnection(int connfd, Server *server)
 
         if (result == -1)
         {
-            makeBadRequest(&response);
+            makeBadRequest(&response, "Failed to read headers!");
             goto send_error_resp;
         }
 
@@ -223,21 +241,19 @@ void handleConnection(int connfd, Server *server)
         // if there was a match, but the methods do not match, send a 405
         switch (resultMatch){
             case -1:
-                makeNotFound(&response);
+                makeNotFound(&response, "No request handler found!");
                 goto send_error_resp;
             case -2:
-                makeMethodNotSupported(&response);
+                makeMethodNotSupported(&response, "Method not supported for endpoint!");
                 goto send_error_resp;
             default:
                 break;
         }
 
-
-
         // if a handler is found call the handler function that will decide how to mofidy the request
         // and send data back via TCP to the client
         int resultChain = handleRequestRouter(route, &request, &response, connfd) ;
-        if (resultChain < 0)
+        if (resultChain)
         {
             goto send_error_resp;
         }
@@ -245,12 +261,10 @@ void handleConnection(int connfd, Server *server)
     // free the http request and the associated meory in the arena
     // no need to deallocate, keep the meory for future requests
     free_code:
-        current_user.username = NULL;
-        current_user.role = NULL;
         freeHTTPRequest(&request);
         freeHTTPResponse(&response);
         arena_reset(&arena);
-        return;
+        continue;
     send_error_resp:
         sendResponse(&response, connfd);
         goto free_code;
