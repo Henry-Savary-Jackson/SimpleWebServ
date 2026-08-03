@@ -334,7 +334,7 @@ int handlePOSTFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandl
     if (ret)
     {
 
-        makeServerErrror(response, "Failed to write to file!");
+        makeServerError(response, "Failed to write to file!");
         goto finish;
     }
 
@@ -512,6 +512,42 @@ int sendBodyGET(FILE *file, HTTPResponse *response, FileSystemHandler *handler, 
     return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
 }
 
+int handleHEADFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd){
+
+    Path *path = &request->uriPath;
+    char pathStr[PATH_MAX];
+    pathToStr(path, pathStr);
+
+    if (access(pathStr, F_OK)==-1){
+        makeNotFound(response, "Not found!");
+    }
+
+    struct stat file_stat;
+
+    int stat_res = stat(pathStr, &file_stat);
+    if (stat_res){
+        makeServerError(response, "Error analyzing file");
+        return -1;
+    }
+
+    bool isDir = S_ISDIR(file_stat.st_mode);
+
+    char * mimeStr = getMimeTypeForFile(pathStr);
+    MimeTypeQualityValue* mimetype = decodeSingleMimetypeQualityValue(mimeStr);
+
+    if (strcmp(mimetype->major, "video")  ){
+        setHeader(response, ACCEPT_RANGE_HEADER_NAME, "bytes");
+    }
+
+    setHeader(response, CONTENT_TYPE_HEADER_NAME, mimeStr);
+
+    response->contentLength = isDir? 0: (int)file_stat.st_size;
+
+    sendResponse(response,  connfd);
+
+    return 0;
+}
+
 int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
 {
 
@@ -585,7 +621,7 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
     ret = sendBodyGET(openedFile, response, handler, connfd);
     if (ret)
     {
-        makeServerErrror(response, "Failed to read file!");
+        makeServerError(response, "Failed to read file!");
         goto error;
     }
 
@@ -611,10 +647,21 @@ void replacePrefixWithWebroot(HTTPRequest *request, FileSystemHandler *fsHandler
     concatenatePath(&fsHandler->webroot, &request->uriPath);
 }
 
+
+
 int FSHandlerCallbackPublic(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
 {
     replacePrefixWithWebroot(request, handler);
-    return handleGETFile(request, response, handler, connfd);
+    switch (request->method){
+        case GET:
+            return handleGETFile(request, response, handler, connfd);
+        case HEAD:
+            return 0;
+        default:
+            makeMethodNotSupported(response, NULL);
+            break;
+    }
+    return -1;
 }
 int FSHandlerCallbackPrivate(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
 {
@@ -633,7 +680,7 @@ int FSHandlerCallbackPrivate(HTTPRequest *request, HTTPResponse *response, void 
 
 Route getPublicFSHandlerObj(FileSystemHandler *fsHandler)
 {
-    enum http_method methods[1] = {GET};
+    enum http_method methods[2] = {GET, HEAD};
     Route route;
     initRoute(&route, fsHandler->pathPrefix, methods, sizeof(methods) / sizeof(enum http_method));
     route.handlerObject = fsHandler;
