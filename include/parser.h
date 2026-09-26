@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cc_array.h"
 #include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "cc_pqueue.h"
@@ -8,6 +9,7 @@
 #include "utils.h"
 #include <magic.h>
 #include <zlib.h>
+#include <sys/stat.h>
 
 typedef struct
 {
@@ -22,8 +24,13 @@ typedef struct
     float q;
 } EncodingQualityValue;
 
-enum cookie_samesite  {STRICT=0, LAX=1, NONE=2};
-extern char * cookie_samesite_arr[3];
+enum cookie_samesite
+{
+    STRICT = 0,
+    LAX = 1,
+    NONE = 2
+};
+extern char *cookie_samesite_arr[3];
 
 #define COOKIE_SAMESITE_STRICT_STR "Strict"
 #define COOKIE_SAMESITE_LAX "Lax"
@@ -43,6 +50,12 @@ typedef struct
     enum cookie_samesite samesite;
 } Cookie;
 
+typedef struct
+{
+    ulong start;
+    ulong end;
+} Range;
+
 
 extern thread_local magic_t magic;
 
@@ -54,10 +67,13 @@ int decompressBody(HTTPRequest *request, enum http_encoding encoding);
 int scanNextRequest(HTTPRequest *request, bool *keepAliv, int *status);
 
 int sendResponse(HTTPResponse *response, int connfd);
-int encodeHeaders(HTTPResponse *response, GrowingBuffer *buffer);
+int encodeHeaders(CC_HashTable* headers, GrowingBuffer *buffer);
+#define encodeHeadersResponse(r, b) encodeHeaders((r)->headers, b);
+
 int encodeResponseBody(HTTPResponse *response, GrowingBuffer *buffer);
 int prepareHTTPResponseStatusLine(HTTPResponse *response, GrowingBuffer *buffer);
 int prepareHTTPResponseMetadata(HTTPResponse *response);
+int prepareHTTPRequestMetadata(HTTPRequest *request, HTTPResponse *response);
 int prepareResponseBody(HTTPResponse *response);
 int compressReponseBody(HTTPResponse *response, enum http_encoding encoding);
 
@@ -70,7 +86,7 @@ enum http_stream_status readTrailerSection(HTTPStream *stream, CC_HashTable *tra
 
 /** send body chunks
  */
-int sendChunk(int connfd, char *chunk, int size);
+int sendChunk(int connfd, char *chunk, ulong size);
 int sendFinalChunk(int connfd);
 int sendTrailerChunk(int connfd, CC_HashTable *trailerParams);
 int sendBodyChunks(int connfd, HTTPResponse *response, int maxChunkSize);
@@ -114,15 +130,18 @@ int decode_zlib(char *data, int inSize, char **output, int *outSize);
 int encode_gzip(char *data, int inSize, char **output, int *outSize);
 int decode_gzip(char *data, int inSize, char **output, int *outSize);
 
-int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk, int outChunkSize, bool isEOF);
+ulong compressStream(z_streamp strm, bool isEOF);
 int inflateChunk(z_streamp strm, int outSize, char *outChunk);
 
 
-int encodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void* args);
+int transferCodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args);
+int encodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args);
 
 int parseCookies(char *cookiesStr, HTTPRequest *request);
 int encodeCookies(HTTPResponse *response);
 
 void initCookie(Cookie *cookie, char *name, char *value);
-Cookie* getCookieResponse(HTTPResponse *response, char * name);
+Cookie *getCookieResponse(HTTPResponse *response, char *name);
 void setCookieResponse(HTTPResponse *response, Cookie *cookie);
+
+int decodeRanges(char *inStr, struct stat *fstat, CC_Array* arr);

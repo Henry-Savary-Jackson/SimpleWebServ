@@ -2,6 +2,7 @@
 #include "cc_common.h"
 #include "cc_deque.h"
 #include "cc_hashtable.h"
+#include "chunked.h"
 #include "http.h"
 #include "memory/cc_dynamic_pool.h"
 #include "server.h"
@@ -23,7 +24,7 @@
 #define INIT_BUFFER_SIZE 16
 #define METHOD_MAX_SIZE 16
 
-void handleQueryParam(char *inStr, void *args)
+int handleQueryParam(char *inStr, void *args)
 {
     int lineLength = (int)strlen(inStr);
     HTTPRequest *request = args;
@@ -33,10 +34,11 @@ void handleQueryParam(char *inStr, void *args)
     if (count != 2)
     {
         perror("invalid query params");
-        return;
+        return -1;
     }
     // add the dictionary
     setQueryParam(request, key, value);
+    return 0;
 }
 
 int parseQueryParameters(char *queryParams, HTTPRequest *request)
@@ -198,7 +200,7 @@ int prepareHTTPResponseStatusLine(HTTPResponse *response, GrowingBuffer *buffer)
     enum cc_stat stat_phrase = cc_hashtable_get(code_to_phrase, &response->statusCode, (void **)&phrase);
     assert(stat_phrase == CC_OK);
 
-    sprintf(firstline, "HTTP/%s %d %s\r\n", response->request->version, response->statusCode, phrase);
+    sprintf(firstline, "HTTP/%s %d %s\r\n", response->version, response->statusCode, phrase);
 
     int firstLineLength = (int)strlen(firstline);
     appendGrowingBuffer(buffer, firstline, firstLineLength);
@@ -213,7 +215,7 @@ int prepareHTTPResponseMetadata(HTTPResponse *response)
     {
         setHeader(response, CONTENT_LENGTH_HEADER_NAME, contentLengthS);
     }
-    if (response->contentLength > 0 && response->contentEncoding != IDENTITY_ENCODING)
+    if (response->containsBody && response->contentLength > 0 && response->contentEncoding != IDENTITY_ENCODING)
     {
         setHeader(response, CONTENT_ENCODING_HEADER_NAME, HTTP_ENCODING_STRING(response->contentEncoding));
     }
@@ -221,12 +223,13 @@ int prepareHTTPResponseMetadata(HTTPResponse *response)
     {
         setHeader(response, TRANSFER_CODING_HEADER_NAME, HTTP_ENCODING_STRING(response->transferEncoding));
     }
-    if (response->contentType){
+    if (response->contentType)
+    {
         setHeader(response, CONTENT_TYPE_HEADER_NAME, response->contentType);
     }
     if (cc_hashtable_size(response->cookies) > 0)
     {
-        encodeCookies(response);
+        return encodeCookies(response);
     }
 
     return 0;
@@ -262,12 +265,7 @@ int compressReponseBody(HTTPResponse *response, enum http_encoding encoding)
 
 int prepareResponseBody(HTTPResponse *response)
 {
-    int ret = compressReponseBody(response, response->contentEncoding);
-    if (ret)
-    {
-        return ret;
-    }
-    return 0;
+    return compressReponseBody(response, response->contentEncoding);;
 }
 
 int sendResponse(HTTPResponse *response, int connfd)
@@ -276,28 +274,60 @@ int sendResponse(HTTPResponse *response, int connfd)
 
     initGrowingBuffer(&outBuffer, INIT_BUFFER_SIZE);
 
-    prepareHTTPResponseStatusLine(response, &outBuffer);
-    prepareResponseBody(response);
-    prepareHTTPResponseMetadata(response);
+    int ret = 0;
 
-    encodeHeaders(response, &outBuffer);
-    encodeResponseBody(response, &outBuffer);
+    ret = prepareHTTPResponseStatusLine(response, &outBuffer);
+    if (ret)
+    {
+        return ret;
+    }
+    ret = prepareResponseBody(response);
+    if (ret)
+    {
+        return ret;
+    }
+    ret = prepareHTTPResponseMetadata(response);
+    if (ret)
+    {
+        return ret;
+    }
+
+    ret = encodeHeadersResponse(response, &outBuffer);
+    if (ret)
+    {
+        return ret;
+    }
+
+
+    if (response->transferEncoding == CHUNKED && response->contentLength > 0)
+    {
+        ret = sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
+        if (ret)
+        {
+            return ret;
+        }
+
+        return sendBodyChunks(connfd, response, CHUNKED_CHUNK_SIZE);
+    }
+    ret = encodeResponseBody(response, &outBuffer);
+    if (ret){
+        return ret;
+    }
 
     return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
 }
 
 int encodeResponseBody(HTTPResponse *response, GrowingBuffer *buffer)
 {
-    if (response->body && response->contentLength > 0)
+    if (response->containsBody && response->body && response->contentLength > 0)
     {
         appendGrowingBuffer(buffer, response->body, response->contentLength);
     }
     return 0;
 }
 
-int encodeHeaders(HTTPResponse *response, GrowingBuffer *buffer)
+int encodeHeaders(CC_HashTable *headers, GrowingBuffer *buffer)
 {
-    CC_HashTable *headers = response->headers;
     int numHeaders = (int)cc_hashtable_size(headers);
     struct cc_hashtable_iter iter;
     cc_hashtable_iter_init(&iter, headers);

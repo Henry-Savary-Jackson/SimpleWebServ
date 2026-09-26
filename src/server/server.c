@@ -4,14 +4,11 @@
 #include "cc_common.h"
 #include "cc_hashtable.h"
 #include "http.h"
-#include "memory/cc_dynamic_pool.h"
 #include "threadpool.h"
-#include "utils.h"
 #include <arpa/inet.h>
 #include <asm-generic/errno.h>
 #include <errno.h>
 #include <parser.h>
-#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -233,6 +230,11 @@ void handleConnection(int connfd, Server *server)
         }
 
         setRequest(&response, &request);
+
+        result = prepareHTTPRequestMetadata(&request, &response);
+        if (result <0 ){
+            goto send_error_resp;
+        }
 
         // choose a request handler that matches the url endpoint the most
         Route *route = NULL;

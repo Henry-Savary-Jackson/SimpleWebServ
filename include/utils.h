@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cc_array.h"
 #include "cc_deque.h"
 #include "memory/cc_dynamic_pool.h"
 #include <iso646.h>
@@ -37,7 +38,7 @@ void copyStringToPool(char ** dst, char* src, CC_DynamicPool* pool);
 int arrLineSearch(char **arr, int size, char *key);
 void strToLower(char * str, char** out );
 
-void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args);
+int tokenize(char *inStr,char token, int (*handle)(char *, void*), void* args);
 
 #define HTTP_METHOD(s)                                                                                                 \
     (enum http_method)(arrLineSearch((char **)http_method_arr, sizeof(http_method_arr) / sizeof(char *), (char *)(s)))
@@ -81,5 +82,11 @@ int prefixMatchPaths(Path *prefix, Path *path);
 
 int sendDataTCP(int connfd, char * chunk , int size);
 
-int writeToFile(FILE *file, char *chunk, int size);
-int readFromFile(FILE *file, char *chunk, int size);
+int writeToFile(FILE *file, char *chunk, ulong size);
+int readFromFile(FILE *file, char *chunk, ulong size);
+
+
+#define MIN(x,y) ( (x)< (y) ? (x) : (y))
+#define MAX(x,y) ( (x)< (y)? (y) : (x))
+
+void initCCArr(CC_Array ** array_p);

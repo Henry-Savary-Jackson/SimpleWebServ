@@ -18,13 +18,13 @@ thread_local magic_t magic;
 
 #define DEFAULT_MIMETYPE_STR "application/octet-stream"
 
-void decodeMediaTypeParam(char* inStr, void* args){
+int decodeMediaTypeParam(char* inStr, void* args){
     MediaType * mediaType = args;
     char name[1<<6];
     char value[1<<6];
     int countOpts = sscanf(inStr, " %63[^=]=%63s ", name, value  );
     if (countOpts != 2){
-        return ;
+        return -1;
     }
     char * nameLower;
     char * valueLower;
@@ -36,6 +36,7 @@ void decodeMediaTypeParam(char* inStr, void* args){
     }else if (!strcmp(valueLower, "boundary" )){
         mediaType->boundary = valueLower;
     }
+    return 0;
 }
 
 int decodeRequestContentMimeType(char * qvString, MediaType* mediaType){

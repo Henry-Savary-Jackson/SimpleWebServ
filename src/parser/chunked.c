@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 int readBodyChunked(HTTPRequest *request)
 {
     char *chunk = NULL;
@@ -27,12 +28,6 @@ int readBodyChunked(HTTPRequest *request)
     //
     request->body = bodyGrowingBuffer.ptr;
     request->contentLength = bodyGrowingBuffer.size;
-    // start headers for trailer params
-    CC_HashTableConf htConf;
-    configureHTTPDict(&htConf);
-
-    CC_HashTable *trailerParams;
-    cc_hashtable_new_conf(&htConf, &trailerParams);
     return 0;
 }
 enum http_stream_status readNextChunk(HTTPStream *stream, char **out, int *size)
@@ -80,12 +75,12 @@ enum http_stream_status readTrailerSection(HTTPStream *stream, CC_HashTable *tra
 
 /** send body chunks
  */
-int sendChunk(int connfd, char *chunk, int size)
+int sendChunk(int connfd, char *chunk, ulong size)
 
 {
     const int maxSizeHex = 16;
     char outBuffer[size + maxSizeHex + (2 * HTTP_LINE_END_TOK_SIZE) + 1];
-    snprintf(outBuffer, maxSizeHex, "%x%s", size, HTTP_LINE_END_TOK);
+    snprintf(outBuffer, maxSizeHex, "%x%s", (uint)size, HTTP_LINE_END_TOK);
 
     int offset = (int)strlen(outBuffer);
 

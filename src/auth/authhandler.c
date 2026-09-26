@@ -25,7 +25,7 @@ int readFile(char *path, HTTPRequest *request, HTTPResponse *response, void *han
                 makeNotFound(response, "HTML file not found!");
                 return -1;
             default:
-                makeServerErrror(response, "Server Error!");
+                makeServerError(response, "Server Error!");
                 return -1;
             }
         }
@@ -92,7 +92,7 @@ int loginHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *han
             makeBadRequest(response, "Wrong Password!");
             return -1;
         default:
-            makeServerErrror(response, "Server Error");
+            makeServerError(response, "Server Error");
             return -1;
     }
 
@@ -140,7 +140,7 @@ int SignUpHandlerCallback(HTTPRequest *request, HTTPResponse *response, void *ha
     int ret = signUpUser(&auth, username, password, role,&token);
     if (ret)
     {
-        makeServerErrror(response, "Failed to hash password.");
+        makeServerError(response, "Failed to hash password.");
         return -1;
     }
 

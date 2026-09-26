@@ -1,4 +1,5 @@
 #include "arena.h"
+#include "cc_array.h"
 #include "memory/cc_dynamic_pool.h"
 #include "server.h"
 #include <ctype.h>
@@ -90,7 +91,7 @@ inline char separator()
 #endif
 }
 
-void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args)
+int tokenize(char *inStr,char token, int (*handle)(char *, void*), void* args)
 {
     int strLen = strlen(inStr);
     char currentString[strLen];
@@ -105,13 +106,17 @@ void tokenize(char *inStr,char token, void (*handle)(char *, void*), void* args)
         if (c == token || c == 0)
         {
             currentString[writeIndex] = 0;
-            handle(currentString, args);
+            int ret = handle(currentString, args);
+            if (ret){
+                return ret;
+            }
             writeIndex = 0;
             continue;
         }
         currentString[writeIndex] = c;
         writeIndex++;
     }
+    return 0;
 }
 
 void strToLower(char * str, char** out ){
@@ -120,4 +125,14 @@ void strToLower(char * str, char** out ){
     for (int i = 0; i <= len; i ++){
         (*out)[i] = (char) tolower((int)str[i]);
     }
+}
+
+
+void initCCArr(CC_Array ** array_p){
+    CC_ArrayConf conf;
+    cc_array_conf_init(&conf);
+    conf.mem_alloc = custom_alloc;
+    conf.mem_calloc = custom_calloc;
+    conf.mem_free = custom_free;
+    cc_array_new_conf(&conf, array_p);
 }

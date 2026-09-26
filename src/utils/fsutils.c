@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <errno.h>
+#include <sys/types.h>
 
 int writeToFile(FILE *file, char *chunk, int size)
 {
@@ -21,7 +22,7 @@ int writeToFile(FILE *file, char *chunk, int size)
     return 0;
 }
 
-int readFromFile(FILE *file, char *chunk, int size)
+int readFromFile(FILE *file, char *chunk, ulong size)
 {
     size_t totalRead = 0;
     size_t numRead = 0;

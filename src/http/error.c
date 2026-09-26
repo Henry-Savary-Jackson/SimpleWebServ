@@ -1,6 +1,8 @@
 #include "cc_hashtable.h"
 #include "parser.h"
+#include "server.h"
 #include <http.h>
+#include <stdio.h>
 #include <string.h>
 
 int makeErrorResponse(HTTPResponse *response, int status, char *message)
@@ -56,8 +58,15 @@ int makeMediaTypeNotSupported(HTTPResponse *response, char * reason)
 
     return makeErrorResponse(response, HTTP_UNSUPPORTED_MEDIA_TYPE,reason);
 }
-int makeServerErrror(HTTPResponse *response, char * reason)
+int makeServerError(HTTPResponse *response, char * reason)
 {
-
     return makeErrorResponse(response, HTTP_SERVER_ERROR, reason);
+}
+
+
+int makeRangeUnSatisfiable(HTTPResponse *response, char *reason, size_t trueSize){
+    char rangeHeader[1<<7];
+    snprintf(rangeHeader, sizeof(rangeHeader), "bytes */%ld", trueSize);
+    setHeader(response, CONTENT_RANGE_HEADER_NAME, rangeHeader);
+    return makeErrorResponse(response, HTTP_RANGE_NOT_SATISFIABLE, reason);
 }

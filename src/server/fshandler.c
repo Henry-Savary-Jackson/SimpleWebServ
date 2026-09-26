@@ -91,7 +91,7 @@ int chooseContentType(char *path, HTTPRequest *request, HTTPResponse *response, 
             sendResponse(response, connfd);
             return -1;
         }
-
+        decodeRequestContentMimeType(chosenMimetype, &response->mediaType);
         setContentType(response, chosenMimetype);
     }
     else
@@ -376,6 +376,35 @@ end_code:
     return 0;
 }
 
+int sendChunkCompressed(z_stream *strm, char *chunk, int size, int connfd, bool eof)
+{
+    int ret = 0;
+    strm->avail_in = size;
+    strm->next_in = (Bytef *)chunk;
+    char outChunk[compressBound(size)];
+    strm->next_out = (Bytef *)outChunk;
+    strm->avail_out = sizeof(outChunk);
+
+
+    while (strm->avail_in > 0)
+    {
+        ulong n_compressed = compressStream(strm, eof);
+
+        if (n_compressed > sizeof(outChunk))
+        {
+            return -1;
+        }
+        strm->avail_out = sizeof(outChunk);
+
+        int ret = sendChunk(connfd, outChunk, n_compressed);
+        if (ret < 0)
+        {
+            return ret;
+        }
+    }
+    return 0;
+}
+
 int sendBodyGETChunkedCompressed(z_stream *strm,
                                  FILE *file,
                                  HTTPResponse *response,
@@ -385,8 +414,6 @@ int sendBodyGETChunkedCompressed(z_stream *strm,
     char chunk[FS_CHUNK_SIZE];
     char outChunk[FS_CHUNK_SIZE];
     int n_read = 0;
-    int n_total_read = 0;
-    int total_size = 0;
     int isEOF = 0;
 
     int ret = 0;
@@ -399,29 +426,15 @@ int sendBodyGETChunkedCompressed(z_stream *strm,
             ret = n_read;
             goto end_code;
         }
-        isEOF = feof(file);
-
-        strm->avail_in = n_read;
-        n_total_read += n_read;
-        while (strm->avail_in > 0)
+        ret = sendChunkCompressed(strm, chunk, n_read, connfd, (bool)feof(file));
+        if (ret)
         {
-            int n_compressed = compressChunk(strm, chunk, n_read, outChunk, sizeof(outChunk), (bool)isEOF);
-            if (n_compressed < 0)
-            {
-                ret = n_compressed;
-                goto end_code;
-            }
-            int ret = sendChunk(connfd, outChunk, n_compressed);
-            total_size += n_compressed;
-            if (ret < 0)
-            {
-                goto end_code;
-            }
+            goto end_code;
         }
     }
 end_code:
     sendFinalChunk(connfd);
-    return 0;
+    return ret;
 }
 
 int handleSendingBodyChunked(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
@@ -455,16 +468,17 @@ check_end:
     return send_ret;
 }
 
-int readFileIntoBody(FILE *file, HTTPResponse *response, FileSystemHandler *handler)
+int readFileIntoBody(FILE *file, HTTPResponse *response,  size_t size)
 {
     GrowingBuffer bodyBuffer;
-    char chunk[FS_CHUNK_SIZE];
-    initGrowingBuffer(&bodyBuffer, FS_CHUNK_SIZE);
+    const size_t CHUNK_SIZE_BODY = 1 << 18;
+    char chunk[CHUNK_SIZE_BODY];
+    initGrowingBuffer(&bodyBuffer, CHUNK_SIZE_BODY);
     int ret = 0;
 
-    while (!feof(file))
+    while (!feof(file) && size > bodyBuffer.size )
     {
-        int numRead = readFromFile(file, chunk, sizeof(chunk));
+        int numRead = readFromFile(file, chunk,MIN( sizeof(chunk) , size-bodyBuffer.size ));
         if (numRead < 0)
         {
             return numRead;
@@ -476,74 +490,243 @@ int readFileIntoBody(FILE *file, HTTPResponse *response, FileSystemHandler *hand
     return 0;
 }
 
-int sendBodyGET(FILE *file, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+int sendChunkRangeCompressed(z_streamp strm, FILE *file, CC_Array *ranges, FileSystemHandler *handler, int connfd)
 {
-    GrowingBuffer outBuffer;
-    initGrowingBuffer(&outBuffer, HTTP_STREAM_INIT_BUFFER);
+    Range *currentRange;
 
     int ret = 0;
-
-    prepareHTTPResponseStatusLine(response, &outBuffer);
-
-    // if gzip
-    switch (response->transferEncoding)
+    int queueSize = (int)cc_array_size(ranges);
+    for (int i = 0; i < queueSize; i++)
     {
-    case CHUNKED:
-        prepareHTTPResponseMetadata(response);
-        encodeHeaders(response, &outBuffer);
-        sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
-        return handleSendingBodyChunked(file, response, handler, connfd);
-    case GZIP:
-    case DEFLATE:
-        readFileIntoBody(file, response, handler);
-        prepareResponseBody(response);
-        compressReponseBody(response, response->transferEncoding);
-        break;
-    default:
-        readFileIntoBody(file, response, handler);
-        prepareResponseBody(response);
-        break;
+        enum cc_stat qstat = cc_array_get_at(ranges, i, (void **)&currentRange);
+        if (qstat != CC_OK)
+        {
+            ret = -1;
+            goto end;
+        }
+        int seek_ret = fseeko(file, (long)currentRange->start, SEEK_SET);
+        if (seek_ret)
+        {
+            ret = -2;
+            goto end;
+        }
+        char buf[currentRange->end - currentRange->start];
+
+        assert(currentRange->end >= currentRange->start);
+
+        int nread = readFromFile(file, buf, currentRange->end - currentRange->start);
+
+        if (nread != sizeof(buf))
+        {
+            ret = -3;
+            goto end;
+        }
+        ret = sendChunkCompressed(strm, buf, nread, connfd, ((bool)feof(file)) || i == queueSize - 1);
+        if (ret)
+        {
+            break;
+        }
     }
 
-    prepareHTTPResponseMetadata(response);
-    encodeHeaders(response, &outBuffer);
-    encodeResponseBody(response, &outBuffer);
-
-    return sendDataTCP(connfd, outBuffer.ptr, outBuffer.size);
+end:
+    sendFinalChunk(connfd);
+    return ret;
 }
 
-int handleHEADFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd){
+
+int sendChunksRangeGET(FILE *file, CC_ArrayIter *iter, FileSystemHandler *handler, int connfd)
+{
+    enum cc_stat qstat;
+    Range *currentRange;
+
+    int ret = 0;
+    while ((qstat = cc_array_iter_next(iter, (void **)&currentRange)) == CC_OK)
+    {
+        int seek_ret = fseeko(file, (long)currentRange->start, SEEK_SET);
+        if (seek_ret)
+        {
+            ret = -1;
+            goto end;
+        }
+        char buf[currentRange->end - currentRange->start];
+        assert(currentRange->end >= currentRange->start);
+        int nread = readFromFile(file, buf, currentRange->end - currentRange->start);
+        if (nread != sizeof(buf))
+        {
+            ret = -2;
+            goto end;
+        }
+        ret = sendChunk(connfd, buf, sizeof(buf));
+        if (ret)
+        {
+            break;
+        }
+    }
+
+end:
+    sendFinalChunk(connfd);
+    return ret;
+}
+
+
+int readBodyRangeGet(FILE *file, CC_Array *ranges, HTTPResponse *response)
+{
+    GrowingBuffer bodyBuffer;
+    initGrowingBuffer(&bodyBuffer, HTTP_STREAM_INIT_BUFFER);
+    int ret = 0;
+
+    CC_ArrayIter iter;
+    cc_array_iter_init(&iter, ranges);
+
+    enum cc_stat qstat;
+    Range *currentRange;
+
+    while ((qstat = cc_array_iter_next(&iter, (void **)&currentRange)) == CC_OK)
+    {
+        int seek_ret = fseeko(file, (long)currentRange->start, SEEK_SET);
+        if (seek_ret)
+        {
+            return -1;
+        }
+        assert(currentRange->end >= currentRange->start);
+        size_t expectedSize = currentRange->end-currentRange->start;
+        char buf[expectedSize];
+        const size_t CHUNK_SIZE_BODY = 1 << 15;
+        int nTotal = 0;
+        while (!feof(file) && nTotal < expectedSize)
+        {
+            int numRead = readFromFile(file, buf+nTotal, MIN(expectedSize-nTotal, CHUNK_SIZE_BODY));
+            if (numRead < 0)
+            {
+                return numRead;
+            }
+            nTotal += numRead;
+        }
+        assert(nTotal == expectedSize);
+        appendGrowingBuffer(&bodyBuffer, buf, nTotal );
+    }
+    response->body = bodyBuffer.ptr;
+    response->contentLength = bodyBuffer.size;
+
+    return 0;
+}
+
+int sendResponseRangeChunked(FILE *file,
+                             CC_Array *ranges,
+                             HTTPResponse *response,
+                             FileSystemHandler *handler,
+                             int connfd)
+{
+    int ret = 0;
+    z_stream strm;
+
+
+    GrowingBuffer buffer;
+    initGrowingBuffer(&buffer, HTTP_STREAM_INIT_BUFFER);
+    prepareHTTPResponseStatusLine(response, &buffer);
+    prepareHTTPResponseMetadata(response);
+    encodeHeadersResponse(response, &buffer);
+    ret = sendDataTCP(connfd, buffer.ptr, buffer.size);
+    if (ret)
+    {
+        return ret;
+    }
+
+    switch (response->contentEncoding)
+    {
+    case GZIP:
+        ret = encode_gzip_prepare(&strm);
+        break;
+    case DEFLATE:
+        ret = encode_zlib_prepare(&strm);
+        break;
+    default:
+        CC_ArrayIter iter;
+        cc_array_iter_init(&iter, ranges);
+        ret = sendChunksRangeGET(file, &iter, handler, connfd);
+        return ret;
+    }
+    if (ret)
+    {
+        return ret;
+    }
+    ret = sendChunkRangeCompressed(&strm, file, ranges, handler, connfd);
+    return ret;
+}
+
+
+int handleHEADFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandler *handler, int connfd)
+{
 
     Path *path = &request->uriPath;
     char pathStr[PATH_MAX];
     pathToStr(path, pathStr);
 
-    if (access(pathStr, F_OK)==-1){
+    if (access(pathStr, F_OK) == -1)
+    {
         makeNotFound(response, "Not found!");
+        return -1;
     }
 
     struct stat file_stat;
 
     int stat_res = stat(pathStr, &file_stat);
-    if (stat_res){
+    if (stat_res)
+    {
         makeServerError(response, "Error analyzing file");
         return -1;
     }
 
     bool isDir = S_ISDIR(file_stat.st_mode);
 
-    char * mimeStr = getMimeTypeForFile(pathStr);
-    MimeTypeQualityValue* mimetype = decodeSingleMimetypeQualityValue(mimeStr);
-
-    if (strcmp(mimetype->major, "video")  ){
+    if (!isDir)
+    {
         setHeader(response, ACCEPT_RANGE_HEADER_NAME, "bytes");
+        char *mimeStr = getMimeTypeForFile(pathStr);
+        setHeader(response, CONTENT_TYPE_HEADER_NAME, mimeStr);
+        response->contentLength = (int)file_stat.st_size;
+    }
+    else
+    {
+        response->contentLength = 0;
+    }
+    sendResponse(response, connfd);
+
+    return 0;
+}
+
+int handleGETRanged(FILE *openedFile, struct stat * file_stat, HTTPRequest *request, HTTPResponse *response, char *rangeStr)
+{
+    int ret = 0;
+    CC_Array *listRanges;
+    initCCArr(&listRanges);
+
+
+    ret = decodeRanges(rangeStr, file_stat, listRanges);
+    if (ret)
+    {
+        makeRangeUnSatisfiable(response,"Range not satisfiable", file_stat->st_size);
+        return ret;
+    }
+    Range *rangeInitial = NULL;
+    cc_array_get_at(listRanges, 0, (void **)&rangeInitial);
+    const size_t MAX_REQ_SIZE = 1 << 22;
+    if (rangeInitial->end - rangeInitial->start >= MAX_REQ_SIZE)
+    {
+        rangeInitial->end = rangeInitial->start + MAX_REQ_SIZE;
     }
 
-    setHeader(response, CONTENT_TYPE_HEADER_NAME, mimeStr);
+    ret = readFileIntoBody(openedFile, response, rangeInitial->end-rangeInitial->start);
+    if (ret)
+    {
+        makeServerError(response, "Unable to read the file!");
+        return ret;
+    }
+    response->statusCode = HTTP_PARTIAL_CONTENT;
 
-    response->contentLength = isDir? 0: (int)file_stat.st_size;
-
-    sendResponse(response,  connfd);
+    char contentRangeS[128];
+    snprintf(contentRangeS,sizeof(contentRangeS), "bytes %ld-%ld/%ld", rangeInitial->start, rangeInitial->end, file_stat->st_size);
+    setHeader(response, CONTENT_RANGE_HEADER_NAME, contentRangeS);
 
     return 0;
 }
@@ -618,12 +801,30 @@ int handleGETFile(HTTPRequest *request, HTTPResponse *response, FileSystemHandle
         makeMediaTypeNotSupported(response, "Media Type not supported for this file!");
         goto error;
     }
-    ret = sendBodyGET(openedFile, response, handler, connfd);
+    setHeader(response, ACCEPT_RANGE_HEADER_NAME, "bytes");
+
+    struct stat fstat;
+    stat(pathStr, &fstat);
+
+    char *rangeHeader = getHeader(request, RANGE_HEADER_NAME);
+    if (rangeHeader )
+    {
+        if ((ret = handleGETRanged(openedFile,&fstat,  request, response, rangeHeader))){
+            goto error;
+        }
+
+        goto send_resp;
+    }
+
+    ret = readFileIntoBody(openedFile, response,  fstat.st_size );
     if (ret)
     {
         makeServerError(response, "Failed to read file!");
         goto error;
     }
+
+send_resp:
+    sendResponse(response, connfd);
 
 closefile:
     if (openedFile)
@@ -648,18 +849,18 @@ void replacePrefixWithWebroot(HTTPRequest *request, FileSystemHandler *fsHandler
 }
 
 
-
 int FSHandlerCallbackPublic(HTTPRequest *request, HTTPResponse *response, void *handler, int connfd)
 {
     replacePrefixWithWebroot(request, handler);
-    switch (request->method){
-        case GET:
-            return handleGETFile(request, response, handler, connfd);
-        case HEAD:
-            return 0;
-        default:
-            makeMethodNotSupported(response, NULL);
-            break;
+    switch (request->method)
+    {
+    case GET:
+        return handleGETFile(request, response, handler, connfd);
+    case HEAD:
+        return handleHEADFile(request, response, handler, connfd);
+    default:
+        makeMethodNotSupported(response, NULL);
+        break;
     }
     return -1;
 }

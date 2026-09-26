@@ -67,6 +67,8 @@ void freeRouter(Router *router)
 
 int handleRequestRouter(Route *route, HTTPRequest *request, HTTPResponse *response, int connfd)
 {
+
+
     CC_ArrayIter iter;
     cc_array_iter_init(&iter, route->filterChain);
 
@@ -115,6 +117,7 @@ void initRoute(Route *route, Path prefixPattern, enum http_method *supportedMeth
     cc_array_new_conf(&conf, &route->filterChain);
     cc_array_new_conf(&conf, &route->allowedMethods);
 
+    addFilterToChain(route,transferCodingFilter, NULL);
     addFilterToChain(route, encodingFilter, NULL);
     addFilterToChain(route, sessionIDFilter, NULL);
     for (int i = 0; i < numSupportedMethods; i++)

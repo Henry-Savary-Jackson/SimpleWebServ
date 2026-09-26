@@ -17,7 +17,7 @@
 #include <zstd.h>
 
 
-void decodeQualityValueHandle(char *inStr, void *args)
+int decodeQualityValueHandle(char *inStr, void *args)
 {
     struct
     {
@@ -30,6 +30,7 @@ void decodeQualityValueHandle(char *inStr, void *args)
     {
         cc_pqueue_push(arg_list->pqueue, qv);
     }
+    return 0;
 }
 
 

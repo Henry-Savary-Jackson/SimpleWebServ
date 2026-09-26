@@ -14,7 +14,7 @@
 
 char *cookie_samesite_arr[3] = {COOKIE_SAMESITE_STRICT_STR, COOKIE_SAMESITE_LAX, COOKIE_SAMESITE_NONE};
 
-void parseCookieHandle(char *inStr, void *args)
+int parseCookieHandle(char *inStr, void *args)
 {
     HTTPRequest *request = args;
 
@@ -25,6 +25,7 @@ void parseCookieHandle(char *inStr, void *args)
 
     int count = sscanf(inStr, " %[^=]=%s ", key, value);
     setCookieRequest(request, key, value);
+    return 0;
 }
 
 

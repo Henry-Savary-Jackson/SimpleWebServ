@@ -117,13 +117,16 @@ error:
     return -1;
 }
 
-void addTransferEncodingToQueue(char *inStr, void *args)
+int addTransferEncodingToQueue(char *inStr, void *args)
 {
 
     CC_Queue *queue = args;
     char trimmedStr[strlen(inStr)];
     int count = sscanf(inStr," %s ",trimmedStr);
     assert(count == 1);
+    if ( count != 1){
+        return -1;
+    }
     enum http_encoding *ptr = custom_alloc(sizeof(enum http_encoding));
     if (ptr && *ptr != UNKNOWN_ENCODING)
     {
@@ -131,6 +134,7 @@ void addTransferEncodingToQueue(char *inStr, void *args)
         *ptr = HTTP_ENCODING(inStr);
         cc_queue_enqueue(queue, ptr);
     }
+    return 0;
 }
 
 void decodeTransferCodingString(char *qvString, CC_Queue **queue)

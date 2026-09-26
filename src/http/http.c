@@ -16,6 +16,7 @@
 
 const int HTTP_OK = 200;
 const int HTTP_NO_CONTENT = 204;
+const int HTTP_PARTIAL_CONTENT = 206;
 const int HTTP_MOVED = 301;
 const int HTTP_NOT_MODIFIED = 304;
 const int HTTP_BAD_REQUEST = 400;
@@ -26,10 +27,12 @@ const int HTTP_METHOD_UNSUPPORTED = 405;
 const int HTTP_NOT_ACCEPTED = 406;
 const int HTTP_CONTENT_LENGTH_REQUIRED = 411;
 const int HTTP_UNSUPPORTED_MEDIA_TYPE = 415;
+const int HTTP_RANGE_NOT_SATISFIABLE = 416;
 const int HTTP_SERVER_ERROR = 500;
 
 const char *HTTP_OK_PHRASE = "OK";
 const char *HTTP_NO_CONTENT_PHRASE = "No Content";
+const char * HTTP_PARTIAL_CONTENT_PHRASE = "Partial Content";
 const char *HTTP_MOVED_PHRASE = "Moved Permanently";
 const char *HTTP_NOT_MODIFIED_PHRASE = "Not Modified";
 const char *HTTP_BAD_REQUEST_PHRASE = "Bad Request";
@@ -40,6 +43,7 @@ const char *HTTP_METHOD_UNSUPPORTED_PHRASE = "Method Not Allowed";
 const char *HTTP_NOT_ACCEPTED_PHRASE = "Not Acceptable";
 const char *HTTP_CONTENT_LENGTH_REQUIRED_PHRASE = "Length Required";
 const char *HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE = "Unsupported Media Type";
+const char *HTTP_RANGE_NOT_SATISFIABLE_PHRASE = "Range Not Satisfiable";
 const char *HTTP_SERVER_ERROR_PHRASE = "Internal Server Error";
 
 CC_HashTable *code_to_phrase;
@@ -261,6 +265,8 @@ int initHTTPResponse(HTTPResponse *response)
     response->contentEncoding = IDENTITY_ENCODING;
     response->transferEncoding = IDENTITY_ENCODING;
     response->contentType = NULL;
+    response->containsBody = true;
+    response->version = "1.1";
 
     CC_HashTableConf htConf;
     configureHTTPDict(&htConf);
@@ -307,6 +313,7 @@ void init_code_to_phrase()
     cc_hashtable_new(&code_to_phrase);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_OK, (char *)HTTP_OK_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_NO_CONTENT, (char *)HTTP_NO_CONTENT_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_PARTIAL_CONTENT, (char *)HTTP_PARTIAL_CONTENT_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_OK, (char *)HTTP_OK_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_NO_CONTENT, (char *)HTTP_NO_CONTENT_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_MOVED, (char *)HTTP_MOVED_PHRASE);
@@ -319,6 +326,7 @@ void init_code_to_phrase()
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_NOT_ACCEPTED, (char *)HTTP_NOT_ACCEPTED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_CONTENT_LENGTH_REQUIRED, (char *)HTTP_CONTENT_LENGTH_REQUIRED_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_UNSUPPORTED_MEDIA_TYPE, (char *)HTTP_UNSUPPORTED_MEDIA_TYPE_PHRASE);
+    cc_hashtable_add(code_to_phrase, (int *)&HTTP_RANGE_NOT_SATISFIABLE, (char *)HTTP_RANGE_NOT_SATISFIABLE_PHRASE);
     cc_hashtable_add(code_to_phrase, (int *)&HTTP_SERVER_ERROR, (char *)HTTP_SERVER_ERROR_PHRASE);
 }
 

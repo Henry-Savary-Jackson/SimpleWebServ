@@ -47,7 +47,7 @@ int chooseRequestTransferCoding(HTTPRequest *request, HTTPResponse *response)
     return 0;
 }
 
-int chooseResponseTransferCoding(HTTPRequest *request, HTTPResponse *response )
+int chooseResponseTransferCoding(HTTPRequest *request, HTTPResponse *response)
 {
     CC_Deque *acceptTE = getHeaderValues(request, TRANSFER_ENCODING_CLIENT_HEADER_NAME);
     if (acceptTE != NULL)
@@ -69,7 +69,7 @@ int chooseResponseTransferCoding(HTTPRequest *request, HTTPResponse *response )
     return 0;
 }
 
-int prepareHTTPRequestMetadata(HTTPRequest *request, HTTPResponse* response)
+int prepareHTTPRequestMetadata(HTTPRequest *request, HTTPResponse *response)
 {
     char *contentLengthS = getHeader(request, CONTENT_LENGTH_HEADER_NAME);
     char *contentEncodingS = getHeader(request, CONTENT_ENCODING_HEADER_NAME);
@@ -92,28 +92,19 @@ int prepareHTTPRequestMetadata(HTTPRequest *request, HTTPResponse* response)
     {
         const int base = 10;
         request->contentLength = (int)strtol(contentLengthS, NULL, base);
-    }else{
+    }
+    else
+    {
         request->contentLength = 0;
     }
-
-    return 0;
-}
-
-
-
-int encodingFilter(HTTPRequest* request, HTTPResponse * response, int connfd, void* args){
     int ret = 0;
-
-    if ((ret = prepareHTTPRequestMetadata(request,response))){
-        return ret;
-    }
 
     if ((ret = chooseResponseContentEncoding(request, response)))
     {
         response->statusCode = HTTP_BAD_REQUEST;
         return ret;
     }
-    if ((ret = chooseResponseTransferCoding( request, response)))
+    if ((ret = chooseResponseTransferCoding(request, response)))
     {
         response->statusCode = HTTP_BAD_REQUEST;
         return ret;
@@ -123,22 +114,75 @@ int encodingFilter(HTTPRequest* request, HTTPResponse * response, int connfd, vo
         response->statusCode = HTTP_BAD_REQUEST;
         return ret;
     }
-    if (request->transferEncoding != CHUNKED && request->contentLength > 0){
-        scanBody(request);
-        // decompress if need be
-    }
-
-    char * cookieStr= getHeader(request, COOKIE_CLIENT_HEADER_NAME);
-    if (cookieStr && (ret = parseCookies(cookieStr, request))){
+    char *cookieStr = getHeader(request, COOKIE_CLIENT_HEADER_NAME);
+    if (cookieStr && (ret = parseCookies(cookieStr, request)))
+    {
         response->statusCode = HTTP_BAD_REQUEST;
         return ret;
     }
 
-    char * contentType = getHeader(request,CONTENT_TYPE_HEADER_NAME);
-    if (contentType && (ret = decodeRequestContentMimeType(contentType, &request->contentType) )){
+    char *contentType = getHeader(request, CONTENT_TYPE_HEADER_NAME);
+    if (contentType && (ret = decodeRequestContentMimeType(contentType, &request->contentType)))
+    {
         response->statusCode = HTTP_BAD_REQUEST;
         return ret;
+    }
+    return ret;
+}
+
+
+int transferCodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args)
+{
+    // handle transfer codings, such as chunked, gzip or compress etc... what ever is supported
+
+    int ret = 0;
+    switch (request->transferEncoding)
+    {
+    case CHUNKED:
+        ret = readBodyChunked(request);
+        break;
+
+    case IDENTITY_ENCODING:
+        return 0;
+    case GZIP:
+    case DEFLATE:
+        ret = scanBody(request);
+        if (ret)
+        {
+            return ret;
+        }
+        ret = decompressBody(request, request->transferEncoding);
+        break;
+    default:
+        // unknown
+        return -1;
     }
 
     return ret;
+}
+
+
+// it is assumed that the body has been hanlded by the transfer encoding already
+int encodingFilter(HTTPRequest *request, HTTPResponse *response, int connfd, void *args)
+{
+
+    // handle content encoding of entire body
+    if (request->contentLength <= 0)
+    {
+        return 0;
+    }
+    switch (request->contentEncoding)
+    {
+    case IDENTITY_ENCODING:
+        return 0;
+    case GZIP:
+    case DEFLATE:
+        return decompressBody(request, request->contentEncoding);
+    default:
+        // unknown
+        return -1;
+    }
+
+
+    return 0;
 }

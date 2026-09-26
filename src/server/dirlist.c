@@ -59,7 +59,7 @@ int handleDirectoryList(char * path, HTTPRequest *request, HTTPResponse *respons
     if (result){
         switch (result){
             case EACCES:
-                makeServerErrror(response, "Server has insufficient permissions to read folder");
+                makeServerError(response, "Server has insufficient permissions to read folder");
                 return -1;
             default:
                 return -1;

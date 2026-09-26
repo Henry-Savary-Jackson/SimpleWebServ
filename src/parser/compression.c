@@ -91,14 +91,13 @@ int encode_gzip(char *data, int inSize, char **output, int *outSize)
     return 0;
 }
 
-int compressChunk(z_streamp strm, char *chunk, int chunkSize, char *outChunk, int outChunkSize, bool isEOF)
+
+ulong compressStream(z_streamp strm, bool isEOF)
 {
-    strm->next_in = (Bytef *)chunk;
-    strm->avail_out = outChunkSize;
-    strm->next_out = (Bytef *)outChunk;
+    ulong oldAvailOut = strm->avail_out;
     int ret = deflate(strm, isEOF?Z_FINISH : Z_SYNC_FLUSH );
     assert(ret != Z_STREAM_ERROR);
-    return outChunkSize - (int)strm->avail_out;
+    return oldAvailOut - strm->avail_out;
 }
 
 
@@ -126,15 +125,15 @@ int inflateChunk(z_streamp strm, int outSize, char *outChunk)
 
 int decode_zstream(z_streamp strm, char **output, int *outSize)
 {
-    const int CHUNK_SIZE = 2048;
+    const int INFLATE_CHUNK_SIZE = 2048;
     GrowingBuffer outGrowingBuffer;
-    initGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
+    initGrowingBuffer(&outGrowingBuffer, INFLATE_CHUNK_SIZE);
     int n_written = 0;
-    while ((n_written = inflateChunk(strm, CHUNK_SIZE, outGrowingBuffer.ptr + outGrowingBuffer.size)) > 0)
+    while ((n_written = inflateChunk(strm, INFLATE_CHUNK_SIZE, outGrowingBuffer.ptr + outGrowingBuffer.size)) > 0)
     {
         outGrowingBuffer.size += n_written;
-        increaseCapacityGrowingBuffer(&outGrowingBuffer, CHUNK_SIZE);
-        if (n_written < CHUNK_SIZE)
+        increaseCapacityGrowingBuffer(&outGrowingBuffer, INFLATE_CHUNK_SIZE);
+        if (n_written < INFLATE_CHUNK_SIZE)
         {
             // end
             break;
