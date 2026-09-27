@@ -4,6 +4,7 @@ import { getCSRF } from "../utils/RequestUtils"
 var CSRFContext = createContext("")
 
 
+
 function CSRFProvider({children}) {
     let [csrf, setCSRF] = useState("")
 

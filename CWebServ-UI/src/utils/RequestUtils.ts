@@ -3,6 +3,15 @@ import axios from "axios"
 axios.defaults.httpVersion = 1;
 axios.defaults.decompress = true;
 
+export interface File {
+    file_name: string
+    mimetype: string
+    isDir: boolean
+    mod_time: number
+};
+
+
+
 export async function getCSRF() {
     let response = await axios.get("/csrf", { withCredentials: true });
     axios.defaults.headers["X-CSRF-TOKEN"] = response.data;
@@ -33,13 +42,13 @@ export async function postFile(path:string, file_name:string, file_blob:Blob, cs
     return response.data
 }
 
-export async function listDirectory(path:string, dir_name:string) {
+export async function listDirectory(path:string, dir_name:string) : Promise<File[]> {
 
     let response = await axios.get(`${path}/${dir_name}`, { params: { list: "true" }, withCredentials: true })
 
-    let files = response.data.split("\n").map((line:string) => {
+    let files : File[] = response.data.split("\n").map((line:string) => {
         let values = line.split(":")
-        return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: new Date(parseInt(values[1])), file_name: values[2] }
+        return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: parseInt(values[1]), file_name: values[2] }
     })
 
     return files
