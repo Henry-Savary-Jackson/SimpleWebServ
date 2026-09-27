@@ -2,6 +2,7 @@
 #include "auth.h"
 #include "cc_array.h"
 #include "cc_common.h"
+#include "cc_deque.h"
 #include "cc_hashtable.h"
 #include "http.h"
 #include "threadpool.h"

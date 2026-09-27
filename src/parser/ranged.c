@@ -39,7 +39,7 @@ int decodeRange(char *rangeStr, struct stat *file_stat, long *start, long *end)
         {
             return -1;
         }
-        *end = file_stat->st_size;
+        *end = file_stat->st_size-1;
         return 0;
         //
     }
@@ -48,7 +48,7 @@ int decodeRange(char *rangeStr, struct stat *file_stat, long *start, long *end)
 
     if (count == 1)
     {
-        *end = file_stat->st_size;
+        *end = file_stat->st_size-1;
     }
 
     // make sure the start and end fit in the file
@@ -56,9 +56,9 @@ int decodeRange(char *rangeStr, struct stat *file_stat, long *start, long *end)
     {
         return -1;
     }
-    if (*end > file_stat->st_size)
+    if (*end >= file_stat->st_size)
     {
-        return -1;
+        *end = file_stat->st_size-1;
     }
 
     return 0;

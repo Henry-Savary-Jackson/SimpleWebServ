@@ -715,8 +715,15 @@ int handleGETRanged(FILE *openedFile, struct stat * file_stat, HTTPRequest *requ
     {
         rangeInitial->end = rangeInitial->start + MAX_REQ_SIZE;
     }
+    int seek_ret = fseeko(openedFile, (long)rangeInitial->start, SEEK_SET);
+    size_t offset = ftello(openedFile);
+    assert(offset == rangeInitial->start);
+    if (seek_ret)
+    {
+        return -2;
+    }
 
-    ret = readFileIntoBody(openedFile, response, rangeInitial->end-rangeInitial->start);
+    ret = readFileIntoBody(openedFile, response, rangeInitial->end-rangeInitial->start+1);
     if (ret)
     {
         makeServerError(response, "Unable to read the file!");
