@@ -21,7 +21,7 @@ A simple web server made (mostly, with the help of some libraries) from scratch 
     - [ ] SSl certificate 
     - [ ] private keys for tokens
     - [ ] number of workers
-- [ ] Supported for Ranged HTTP requests needed for video streaming.
+- [x] Supported for Ranged HTTP requests needed for video streaming.
 - [ ] .ACME authentication for certificate renewal 
 - [ ] Support for HTTP caching 
     - [ ] Usinge Modified Date

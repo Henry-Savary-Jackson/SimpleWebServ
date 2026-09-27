@@ -9,7 +9,7 @@ export async function getCSRF() {
     return response.data;
 }
 
-export async function login(username, password, csrf) {
+export async function login(username:string, password:string, csrf:string) {
     let formdata = new URLSearchParams();
     formdata.append("username", username);
     formdata.append("password", password);
@@ -18,7 +18,7 @@ export async function login(username, password, csrf) {
     let response = await axios.post("/login", formdata, { withCredentials: true });
     return response.data;
 }
-export async function signUp(username, password, csrf) {
+export async function signUp(username:string, password:string, csrf:string) {
     let formdata = new URLSearchParams();
     formdata.append("username", username);
     formdata.append("password", password);
@@ -28,16 +28,16 @@ export async function signUp(username, password, csrf) {
     return response.data;
 }
 
-export async function postFile(path, file_name, file_blob, csrf) {
+export async function postFile(path:string, file_name:string, file_blob:Blob, csrf:string) {
     let response = await axios.post(`${path}/${file_name}`, file_blob, { withCredentials: true })
     return response.data
 }
 
-export async function listDirectory(path, dir_name) {
+export async function listDirectory(path:string, dir_name:string) {
 
     let response = await axios.get(`${path}/${dir_name}`, { params: { list: "true" }, withCredentials: true })
 
-    let files = response.data.split("\n").map((line, i, arr) => {
+    let files = response.data.split("\n").map((line:string) => {
         let values = line.split(":")
         return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: new Date(parseInt(values[1])), file_name: values[2] }
     })
@@ -46,11 +46,11 @@ export async function listDirectory(path, dir_name) {
 }
 
 
-export async function postDirectory(path, directory_name, csrf) {
+export async function postDirectory(path:string, directory_name:string, csrf:string) {
     let response = await axios.post(`${path}/${directory_name}`, null, { withCredentials: true })
     return response.data
 }
-export async function deleteFile(path) {
+export async function deleteFile(path:string, file_name:string) {
     let response = await axios.delete(`${path}/${file_name}`, { withCredentials: true })
     return response.data
 }
