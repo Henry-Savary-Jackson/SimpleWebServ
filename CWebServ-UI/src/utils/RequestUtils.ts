@@ -1,16 +1,17 @@
 import axios from "axios"
 
+export var webroot = "test"
+export var backend_url = "http://localhost:8000"
+
 axios.defaults.httpVersion = 1;
 axios.defaults.decompress = true;
 
-export interface File {
+export interface FileData {
     file_name: string
     mimetype: string
     isDir: boolean
     mod_time: number
 };
-
-
 
 export async function getCSRF() {
     let response = await axios.get("/csrf", { withCredentials: true });
@@ -37,16 +38,16 @@ export async function signUp(username:string, password:string, csrf:string) {
     return response.data;
 }
 
-export async function postFile(path:string, file_name:string, file_blob:Blob, csrf:string) {
+export async function postFile(path:string, file_name:string, file_blob:ArrayBuffer, csrf:string) {
     let response = await axios.post(`${path}/${file_name}`, file_blob, { withCredentials: true })
     return response.data
 }
 
-export async function listDirectory(path:string, dir_name:string) : Promise<File[]> {
+export async function listDirectory(path:string, dir_name:string) : Promise<FileData[]> {
 
     let response = await axios.get(`${path}/${dir_name}`, { params: { list: "true" }, withCredentials: true })
 
-    let files : File[] = response.data.split("\n").map((line:string) => {
+    let files : FileData[] = response.data.split("\n").map((line:string) => {
         let values = line.split(":")
         return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: parseInt(values[1]), file_name: values[2] }
     })
