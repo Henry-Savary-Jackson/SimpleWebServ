@@ -35,7 +35,7 @@ export function FileTreeProvider({ children }) {
                     prev[`${action.path}/${file.file_name}`] = { ...file }
                     let prevParent = prev[action.path]
                     // update parent with new children
-                    prev[action.path] = { ...prevParent, children: [...prevParent.children, file.file_name] }
+                    prev[action.path] = { ...prevParent, children: [...new Set<string>([...prevParent.children, file.file_name])] }
                 })
                 break
             case "DELETE":

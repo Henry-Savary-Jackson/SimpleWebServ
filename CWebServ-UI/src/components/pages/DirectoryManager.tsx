@@ -2,6 +2,7 @@ import { useContext, useEffect } from "react"
 import { FileTreeContext } from "../../providers/FileTreeProvider";
 import { listDirectory, webroot } from "../../utils/RequestUtils";
 import FileElement from "../directory_manager/FileElement";
+import { Stack } from "react-bootstrap";
 
 
 
@@ -16,8 +17,8 @@ function DirectoryManager({ username }: { username: string }) {
         fetchFiles()
     }, [])
 
-    return <div><p>Hello {username}</p>
-        <FileElement path={webroot}/>
-    </div>
+    return <Stack direction="vertical"><span>Hello {username}</span>
+        <FileElement path={webroot} />
+    </Stack>
 }
 export default DirectoryManager

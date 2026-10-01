@@ -38,19 +38,21 @@ export async function signUp(username:string, password:string, csrf:string) {
     return response.data;
 }
 
-export async function postFile(path:string, file_name:string, file_blob:ArrayBuffer, csrf:string) {
+export async function postFile(path:string, file_name:string, file_blob:ArrayBuffer, csrf:string): Promise<FileData> {
     let response = await axios.post(`${path}/${file_name}`, file_blob, { withCredentials: true })
-    return response.data
+    return convertLineToFileData(response.data)
+}
+
+function convertLineToFileData(line:string){
+    const values = line.trim().split(":")
+    return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: parseInt(values[1]), file_name: values[2] }
 }
 
 export async function listDirectory(path:string, dir_name:string) : Promise<FileData[]> {
 
     let response = await axios.get(`${path}/${dir_name}`, { params: { list: "true" }, withCredentials: true })
 
-    let files : FileData[] = response.data.split("\n").map((line:string) => {
-        let values = line.split(":")
-        return { isDir: values[0] == "DIR", mimetype: values[0], mod_time: parseInt(values[1]), file_name: values[2] }
-    })
+    let files : FileData[] = response.data.split("\n").map(convertLineToFileData)
 
     return files
 }

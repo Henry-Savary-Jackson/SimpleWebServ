@@ -1,29 +1,34 @@
 import { Link, useLocation } from "react-router";
 import { signUp } from "../../utils/RequestUtils";
-import { FormLabel } from "react-bootstrap";
-import { useCookies} from "react-cookie"
+import { Button, Form, FormLabel } from "react-bootstrap";
+import { useCookies } from "react-cookie"
+import { useContext, useState } from "react";
+import { CSRFContext } from "../../providers/CSRFProvider";
+import { useNavigate } from "react-router-dom";
 
 function SignUp() {
     let [cookies, setCookie, removeCookie] = useCookies()
     let [username, setUsername] = useState("")
     let [password, setPassword] = useState("")
     let [passwordCheck, setPasswordCheck] = useState("")
+    let [error, setError] = useState("")
     let csrf = useContext(CSRFContext)
-    let location = useLocation()
+    const navigate = useNavigate()
 
 
     return <Form onSubmit={async (e) => {
         e.preventDefault();
+        e.stopPropagation()
         if (password != passwordCheck) {
-            alert("Passwords do not match")
+            setError("Passwords do not match")
             return
         }
         try { await signUp(username, password, csrf); }
         catch (e) {
-            alert(`Failed to sign up:${e}`)
+            setError(`Failed to sign up:${e}`)
         }
         setCookie("username", username)
-        location.pathname = "/main"
+        navigate("/main")
     }} >
         <FormLabel htmlFor="username">Username</FormLabel>
         <Form.Control name="username" id="form-username" value={username} onChange={(e) => { setUsername(e.target.value) }} />

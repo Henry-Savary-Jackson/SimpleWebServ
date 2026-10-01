@@ -11,6 +11,8 @@
 .file-line{
     display: flex;
     flex-direction: column;
+    justify-content: start;
     align-items: center;
+    padding-left: 5rem;
     height: 20rem;
 }
